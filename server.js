@@ -228,6 +228,44 @@ function runPowerShell(script) {
   });
 }
 
+function readWindowsRegistryEnv() {
+  const userMap = {};
+  const machineMap = {};
+
+  try {
+    const userOutput = require("node:child_process").execSync("reg query HKCU\\Environment", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    });
+    for (const line of userOutput.split(/\r?\n/)) {
+      const match = line.trim().match(/^([A-Za-z0-9_]+)\s+REG_[A-Z_]+\s*(.*)$/);
+      if (match) {
+        userMap[match[1]] = match[2] || "";
+      }
+    }
+  } catch (_e) {}
+
+  try {
+    const machineOutput = require("node:child_process").execSync(
+      'reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"',
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+      }
+    );
+    for (const line of machineOutput.split(/\r?\n/)) {
+      const match = line.trim().match(/^([A-Za-z0-9_]+)\s+REG_[A-Z_]+\s*(.*)$/);
+      if (match) {
+        machineMap[match[1]] = match[2] || "";
+      }
+    }
+  } catch (_e) {}
+
+  return { userMap, machineMap };
+}
+
 async function getEnvironmentState() {
   if (process.platform !== "win32") {
     return ALL_ENV_NAMES.map((name) => ({
@@ -238,78 +276,90 @@ async function getEnvironmentState() {
     }));
   }
 
-  const names = ALL_ENV_NAMES.map(psString).join(",");
-  const script = `
-$names = @(${names})
-$items = foreach ($name in $names) {
-  [pscustomobject]@{
-    name = $name
-    user = [Environment]::GetEnvironmentVariable($name, 'User')
-    process = [Environment]::GetEnvironmentVariable($name, 'Process')
-    machine = [Environment]::GetEnvironmentVariable($name, 'Machine')
-  }
-}
-$items | ConvertTo-Json -Depth 4
-`;
-  const output = await runPowerShell(script);
-  if (!output) return [];
-  const parsed = JSON.parse(output);
-  return Array.isArray(parsed) ? parsed : [parsed];
+  const { userMap, machineMap } = readWindowsRegistryEnv();
+
+  return ALL_ENV_NAMES.map((name) => {
+    // Check case-insensitive match from registry maps
+    const uKey = Object.keys(userMap).find((k) => k.toLowerCase() === name.toLowerCase());
+    const mKey = Object.keys(machineMap).find((k) => k.toLowerCase() === name.toLowerCase());
+    return {
+      name,
+      user: uKey ? userMap[uKey] : "",
+      process: process.env[name] || "",
+      machine: mKey ? machineMap[mKey] : "",
+    };
+  });
 }
 
 async function setGlobalProxy(config, enabled, portOverride) {
   if (process.platform !== "win32") throw new Error("Global proxy editing is only implemented for Windows.");
   const url = proxyUrl(config, portOverride);
-  const names = PROXY_ENV_NAMES.map(psString).join(",");
-  const script = enabled
-    ? `
-$names = @(${names})
-foreach ($name in $names) {
-  [Environment]::SetEnvironmentVariable($name, ${psString(url)}, 'User')
-}
-`
-    : `
-$names = @(${names})
-foreach ($name in $names) {
-  [Environment]::SetEnvironmentVariable($name, $null, 'User')
-}
-`;
-  await runPowerShell(script);
+
   for (const name of PROXY_ENV_NAMES) {
     if (enabled) {
+      try {
+        require("node:child_process").execSync(
+          `reg add HKCU\\Environment /v ${name} /t REG_SZ /d "${url}" /f`,
+          { stdio: ["ignore", "ignore", "ignore"], windowsHide: true }
+        );
+      } catch (_e) {}
       process.env[name] = url;
     } else {
+      try {
+        require("node:child_process").execSync(
+          `reg delete HKCU\\Environment /v ${name} /f`,
+          { stdio: ["ignore", "ignore", "ignore"], windowsHide: true }
+        );
+      } catch (_e) {}
       delete process.env[name];
     }
   }
+
+  // Broadcast WM_SETTINGCHANGE asynchronously without blocking response
+  runPowerShell(`
+    $HWND_BROADCAST = [IntPtr]0xffff
+    $WM_SETTINGCHANGE = 0x1a
+    Add-Type -Namespace Win32 -Name NativeMethods -MemberDefinition '[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);'
+    $res = [UIntPtr]::Zero
+    [Win32.NativeMethods]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, 'Environment', 2, 1000, [ref]$res) | Out-Null
+  `).catch(() => {});
+
   return { enabled, proxyUrl: url };
 }
 
 async function setGlobalBypass(config, enabled) {
   if (process.platform !== "win32") throw new Error("Global proxy editing is only implemented for Windows.");
   const value = bypassValue(config);
-  const names = BYPASS_ENV_NAMES.map(psString).join(",");
-  const script = enabled
-    ? `
-$names = @(${names})
-foreach ($name in $names) {
-  [Environment]::SetEnvironmentVariable($name, ${psString(value)}, 'User')
-}
-`
-    : `
-$names = @(${names})
-foreach ($name in $names) {
-  [Environment]::SetEnvironmentVariable($name, $null, 'User')
-}
-`;
-  await runPowerShell(script);
+
   for (const name of BYPASS_ENV_NAMES) {
     if (enabled) {
+      try {
+        require("node:child_process").execSync(
+          `reg add HKCU\\Environment /v ${name} /t REG_SZ /d "${value}" /f`,
+          { stdio: ["ignore", "ignore", "ignore"], windowsHide: true }
+        );
+      } catch (_e) {}
       process.env[name] = value;
     } else {
+      try {
+        require("node:child_process").execSync(
+          `reg delete HKCU\\Environment /v ${name} /f`,
+          { stdio: ["ignore", "ignore", "ignore"], windowsHide: true }
+        );
+      } catch (_e) {}
       delete process.env[name];
     }
   }
+
+  // Broadcast WM_SETTINGCHANGE asynchronously
+  runPowerShell(`
+    $HWND_BROADCAST = [IntPtr]0xffff
+    $WM_SETTINGCHANGE = 0x1a
+    Add-Type -Namespace Win32 -Name NativeMethods -MemberDefinition '[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);'
+    $res = [UIntPtr]::Zero
+    [Win32.NativeMethods]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, 'Environment', 2, 1000, [ref]$res) | Out-Null
+  `).catch(() => {});
+
   return { enabled, bypassValue: value };
 }
 
