@@ -1,7 +1,7 @@
 {
   "name": "scope-switch",
   "version": "0.1.0",
-  "description": "Portable Windows proxy scope switcher for AI tools.",
+  "description": "面向 AI 编程工具的 Windows 本地代理与流量分流管理面板",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

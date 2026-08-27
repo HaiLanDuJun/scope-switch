@@ -1,5 +1,6 @@
 const http = require("node:http");
 const https = require("node:https");
+const tls = require("node:tls");
 const net = require("node:net");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -15,7 +16,14 @@ const CONFIG_PATH = path.join(DATA_DIR, "config.json");
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.SCOPESWITCH_PORT || process.env.WWSWITCH_PORT || 17787);
 
-const PROXY_ENV_NAMES = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"];
+const PROXY_ENV_NAMES = [
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "all_proxy",
+];
 const BYPASS_ENV_NAMES = ["NO_PROXY", "no_proxy"];
 const ALL_ENV_NAMES = [...PROXY_ENV_NAMES, ...BYPASS_ENV_NAMES];
 
