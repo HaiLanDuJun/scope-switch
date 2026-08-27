@@ -1125,6 +1125,24 @@ async function handleApi(req, res, url) {
 function openBrowser(url) {
   if (process.env.SCOPESWITCH_NO_OPEN === "1" || process.env.WWSWITCH_NO_OPEN === "1") return;
   if (process.platform === "win32") {
+    // Try launching as a standalone native-like window using msedge --app or chrome --app
+    const edgePaths = [
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      `${process.env.LOCALAPPDATA}\\Microsoft\\Edge\\Application\\msedge.exe`,
+    ];
+    let appLauncher = edgePaths.find((p) => fs.existsSync(p));
+
+    if (appLauncher) {
+      const child = spawn(appLauncher, [`--app=${url}`, "--window-size=1180,820"], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      child.unref();
+      return;
+    }
+
     const child = spawn("cmd", ["/c", "start", "", url], {
       detached: true,
       stdio: "ignore",

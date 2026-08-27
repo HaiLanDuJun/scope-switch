@@ -1,14 +1,20 @@
 # ScopeSwitch
 
+[![GitHub Release](https://img.shields.io/github/v/release/HaiLanDuJun/scope-switch?color=2ea44f&label=Release&logo=github)](https://github.com/HaiLanDuJun/scope-switch/releases)
+[![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)](https://github.com/HaiLanDuJun/scope-switch/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 ScopeSwitch 是一个专为 Windows 平台设计的便携式 AI 开发工具代理与流量分流管理面板。
 
-它在一个轻量本地控制面板中统一管理三种常见的代理策略：
+---
 
-- **Windows 用户级全局代理**：为所有新打开的终端与 CLI 工具快速开启/关闭代理环境变量。
-- **Claude Code 本地回环绕过**：自动配置 `localhost`、`127.0.0.1` 和 `::1` 绕过规则，避免本地网关出现 502 错误。
-- **单应用/CLI 独立代理启动器**：为 Agy (Antigravity)、Codex、Cursor 或任意自定义软件/命令生成专属启动脚本，仅在该进程注入代理或强制直连，完全不污染系统全局环境。
+## 🚀 下载即用（免安装 / 零依赖）
 
-ScopeSwitch 本身并非全功能的 AI API 代理网关，而是专注于解决 Windows 本地 AI 开发中最容易遇到的痛点：**理清哪个进程应该走哪个代理、哪个该直连，并能一键为新设备生成所有便携启动脚本**。
+对于普通使用者或新电脑，**无需安装任何运行环境（免安装 Node.js）**：
+
+1. 前往 **[GitHub Releases 页面](https://github.com/HaiLanDuJun/scope-switch/releases)**。
+2. 下载最新版的 **`ScopeSwitch-Portable-Win-x64.zip`**。
+3. 解压到任意目录，双击 **`start.cmd`** 即可瞬间启动独立桌面客户端！
 
 ---
 

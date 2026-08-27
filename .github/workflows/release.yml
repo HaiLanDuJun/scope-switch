@@ -1,0 +1,66 @@
+name: Build & Release Portable Windows App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Syntax & Structure Check
+        run: |
+          npm run check
+
+      - name: Prepare Standalone Portable Package
+        shell: pwsh
+        run: |
+          $pkgDir = "ScopeSwitch-Portable-Win-x64"
+          New-Item -ItemType Directory -Path $pkgDir -Force | Out-Null
+          
+          # Copy essential folders and files
+          Copy-Item -Path "server.js" -Destination $pkgDir
+          Copy-Item -Path "package.json" -Destination $pkgDir
+          Copy-Item -Path "start.cmd" -Destination $pkgDir
+          Copy-Item -Path "README.md" -Destination $pkgDir
+          Copy-Item -Path "public" -Destination "$pkgDir/public" -Recurse
+          Copy-Item -Path "scripts" -Destination "$pkgDir/scripts" -Recurse
+          
+          # Download portable Node.js runtime for standalone zero-dependency execution
+          $nodeVersion = "v20.18.0"
+          $nodeZip = "node-$nodeVersion-win-x64.zip"
+          $nodeUrl = "https://nodejs.org/dist/$nodeVersion/$nodeZip"
+          Write-Host "Downloading Portable Node.js runtime from $nodeUrl ..."
+          Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeZip
+          
+          Expand-Archive -Path $nodeZip -DestinationPath "temp_node"
+          New-Item -ItemType Directory -Path "$pkgDir/runtime" -Force | Out-Null
+          Copy-Item -Path "temp_node/node-$nodeVersion-win-x64/node.exe" -Destination "$pkgDir/runtime/node.exe"
+          
+          # Create zip archive
+          Compress-Archive -Path "$pkgDir/*" -DestinationPath "ScopeSwitch-Portable-Win-x64.zip" -Force
+          Write-Host "Portable package created: ScopeSwitch-Portable-Win-x64.zip"
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ScopeSwitch-Portable-Win-x64.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
