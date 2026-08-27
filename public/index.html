@@ -46,6 +46,8 @@
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
               <button data-action="add-profile-proxy" class="button primary" type="button">+ 新增走代理卡片</button>
               <button data-action="add-profile-direct" class="button secondary" type="button">+ 新增直连卡片</button>
+              <button data-action="open-proxy-settings" class="button ghost" type="button">⚙️ 代理端口设置</button>
+              <button data-action="open-claude-settings" class="button ghost" type="button">🤖 Claude API 设置</button>
               <button data-action="add-preset-codex" class="button ghost" type="button">+ Codex</button>
               <button data-action="add-preset-cursor" class="button ghost" type="button">+ Cursor</button>
             </div>
@@ -86,79 +88,6 @@
         <!-- 软件与组件清单矩阵 -->
         <div id="routingMatrixList" class="routing-matrix-grid">
           <!-- 动态渲染 -->
-        </div>
-      </section>
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">Proxy</p>
-            <h2>代理端口</h2>
-          </div>
-          <span id="globalState" class="status-pill muted">未知</span>
-        </div>
-        <div class="form-grid two">
-          <label>
-            <span>协议</span>
-            <select id="proxyScheme">
-              <option value="http">http</option>
-              <option value="https">https</option>
-            </select>
-          </label>
-          <label>
-            <span>地址</span>
-            <input id="proxyHost" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>端口</span>
-            <input id="proxyPort" type="number" min="1" max="65535" />
-          </label>
-          <label>
-            <span>绕过地址</span>
-            <input id="bypassHosts" type="text" autocomplete="off" />
-          </label>
-        </div>
-        <div class="actions-row">
-          <button id="saveConfig" class="button primary" type="button">保存配置</button>
-          <span id="proxyUrlLabel" class="mono hint"></span>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">Claude</p>
-            <h2>Claude 本地 API</h2>
-          </div>
-          <span id="claudeState" class="status-pill muted">未知</span>
-        </div>
-        <div class="form-grid two">
-          <label class="wide">
-            <span>Claude settings 路径</span>
-            <input id="claudeSettingsPath" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>本地 Base URL</span>
-            <input id="claudeBaseUrl" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>TokenRhythm 端口</span>
-            <input id="claudeLocalPort" type="number" min="1" max="65535" />
-          </label>
-          <label>
-            <span>TokenRhythm 上游</span>
-            <input id="claudeUpstream" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>默认模型</span>
-            <input id="claudeModel" type="text" autocomplete="off" placeholder="留空则不改" />
-          </label>
-          <label class="wide">
-            <span>Auth Token</span>
-            <input id="claudeAuthToken" type="password" autocomplete="off" placeholder="留空则不写入或不改动" />
-          </label>
-        </div>
-        <div class="actions-row">
-          <button id="saveClaudeEnv" class="button primary" type="button">写入 Claude 环境</button>
-          <button id="generateClaudeGateway" class="button secondary" type="button">生成 Claude 代理文件</button>
         </div>
       </section>
 

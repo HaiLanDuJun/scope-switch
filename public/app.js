@@ -285,11 +285,12 @@ function renderRoutingMatrix() {
       <button data-action="toggle-gateway" class="button ${(state.ports || {}).claudeListening ? "secondary" : "primary"}" type="button">
         ${(state.ports || {}).claudeListening ? "⏹️ 停止本地网关 (8787)" : "▶️ 启动本地网关 (8787)"}
       </button>
+      <button data-action="open-claude-settings" class="button secondary" type="button">⚙️ API 设置</button>
       ${claudeBypass
         ? `<button data-action="disable-claude-bypass" class="button ghost" type="button">移除专属绕过</button>`
-        : `<button data-action="enable-claude-bypass" class="button primary" type="button">开启专属绕过</button>`
+        : `<button data-action="enable-claude-bypass" class="button ghost" type="button">开启专属绕过</button>`
       }
-      <button data-action="generate-claude-gateway" class="button secondary" type="button">重新生成网关脚本</button>
+      <button data-action="generate-claude-gateway" class="button ghost" type="button">重新生成网关脚本</button>
     `,
   });
 
@@ -570,6 +571,168 @@ function openProfileModal(profile = null, defaultMode = "process") {
   }
 }
 
+function openProxySettingsModal() {
+  const config = state?.config || {};
+  const title = $("#drawerTitle");
+  const eyebrow = $("#drawerEyebrow");
+  const drawerBody = $("#drawerBody");
+  const drawer = $("#drawer");
+
+  if (eyebrow) eyebrow.textContent = "Global Proxy Settings";
+  if (title) title.textContent = "代理端口与全局基础设置";
+
+  const formHtml = `
+    <form id="proxyModalForm" class="modal-form">
+      <div class="form-grid two" style="gap:12px;">
+        <label>
+          <span>代理协议</span>
+          <select name="proxyScheme">
+            <option value="http" ${config.proxy?.scheme === "http" ? "selected" : ""}>http</option>
+            <option value="https" ${config.proxy?.scheme === "https" ? "selected" : ""}>https</option>
+          </select>
+        </label>
+        <label>
+          <span>代理主机地址</span>
+          <input name="proxyHost" value="${escapeHtml(config.proxy?.host || "127.0.0.1")}" placeholder="127.0.0.1" required />
+        </label>
+      </div>
+      <div class="form-grid two" style="gap:12px;">
+        <label>
+          <span>代理端口 (例如 Clash/v2ray 端口)</span>
+          <input name="proxyPort" type="number" min="1" max="65535" value="${escapeHtml(config.proxy?.port || 7890)}" required />
+        </label>
+        <label>
+          <span>全局绕过地址列表 (逗号分隔)</span>
+          <input name="bypassHosts" value="${escapeHtml((config.bypassHosts || []).join(","))}" placeholder="localhost,127.0.0.1,::1" />
+        </label>
+      </div>
+      <p class="hint" style="line-height:1.6;color:#a8b0a2;">
+        💡 此处设置的是本机的默认代理客户端端口与全局直连白名单（NO_PROXY）。
+      </p>
+      <div class="modal-actions">
+        <button type="button" class="button ghost" id="proxyModalCancelBtn">取消</button>
+        <button type="submit" class="button primary">💾 保存代理设置</button>
+      </div>
+    </form>
+  `;
+
+  if (drawerBody) drawerBody.innerHTML = formHtml;
+  if (drawer) {
+    drawer.classList.add("open");
+    drawer.setAttribute("aria-hidden", "false");
+  }
+
+  const modalForm = $("#proxyModalForm");
+  if (modalForm) {
+    $("#proxyModalCancelBtn")?.addEventListener("click", closeDrawer);
+    modalForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formData = new FormData(modalForm);
+      if (!state.config) state.config = {};
+      state.config.proxy = state.config.proxy || {};
+      state.config.proxy.scheme = formData.get("proxyScheme") || "http";
+      state.config.proxy.host = formData.get("proxyHost")?.trim() || "127.0.0.1";
+      state.config.proxy.port = Number(formData.get("proxyPort") || 7890);
+      state.config.bypassHosts = (formData.get("bypassHosts") || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      await saveConfig(false);
+      closeDrawer();
+      toast("代理端口与基础配置已保存！");
+    });
+  }
+}
+
+function openClaudeSettingsModal() {
+  const config = state?.config || {};
+  const title = $("#drawerTitle");
+  const eyebrow = $("#drawerEyebrow");
+  const drawerBody = $("#drawerBody");
+  const drawer = $("#drawer");
+
+  if (eyebrow) eyebrow.textContent = "Claude Integration Settings";
+  if (title) title.textContent = "Claude 本地 API 网关设置";
+
+  const formHtml = `
+    <form id="claudeModalForm" class="modal-form">
+      <label>
+        <span>Claude settings.json 路径</span>
+        <input name="claudeSettingsPath" value="${escapeHtml(config.claude?.settingsPath || "%USERPROFILE%\\.claude\\settings.json")}" placeholder="%USERPROFILE%\\.claude\\settings.json" required />
+      </label>
+      <div class="form-grid two" style="gap:12px;">
+        <label>
+          <span>本地 Base URL (Claude请求地址)</span>
+          <input name="claudeBaseUrl" value="${escapeHtml(state.claude?.baseUrl || config.claude?.baseUrl || "http://127.0.0.1:8787")}" placeholder="http://127.0.0.1:8787" />
+        </label>
+        <label>
+          <span>本地网关监听端口</span>
+          <input name="claudeLocalPort" type="number" min="1" max="65535" value="${escapeHtml(config.claude?.localProxyPort || 8787)}" required />
+        </label>
+      </div>
+      <div class="form-grid two" style="gap:12px;">
+        <label>
+          <span>TokenRhythm 上游服务地址</span>
+          <input name="claudeUpstream" value="${escapeHtml(config.claude?.upstream || "https://tokenrhythm.studio")}" placeholder="https://tokenrhythm.studio" required />
+        </label>
+        <label>
+          <span>默认模型</span>
+          <input name="claudeModel" value="${escapeHtml(state.claude?.model || "")}" placeholder="留空则不修改 (例如 glm-5.2)" />
+        </label>
+      </div>
+      <label>
+        <span>Auth Token (可选)</span>
+        <input name="claudeAuthToken" type="password" placeholder="留空则不写入或不改动" />
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="button ghost" id="claudeModalCancelBtn">取消</button>
+        <button type="button" class="button secondary" id="claudeWriteEnvBtn">写入 Claude 环境 (settings.json)</button>
+        <button type="submit" class="button primary">💾 保存并生成网关文件</button>
+      </div>
+    </form>
+  `;
+
+  if (drawerBody) drawerBody.innerHTML = formHtml;
+  if (drawer) {
+    drawer.classList.add("open");
+    drawer.setAttribute("aria-hidden", "false");
+  }
+
+  const modalForm = $("#claudeModalForm");
+  if (modalForm) {
+    $("#claudeModalCancelBtn")?.addEventListener("click", closeDrawer);
+    $("#claudeWriteEnvBtn")?.addEventListener("click", async () => {
+      const formData = new FormData(modalForm);
+      const payload = await api("/api/claude-env", {
+        settingsPath: formData.get("claudeSettingsPath"),
+        baseUrl: formData.get("claudeBaseUrl"),
+        model: formData.get("claudeModel"),
+        authToken: formData.get("claudeAuthToken"),
+      });
+      state = payload.state;
+      render();
+      toast("已成功将网关配置写入 Claude settings.json！");
+    });
+
+    modalForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formData = new FormData(modalForm);
+      if (!state.config) state.config = {};
+      state.config.claude = state.config.claude || {};
+      state.config.claude.settingsPath = formData.get("claudeSettingsPath")?.trim() || "%USERPROFILE%\\.claude\\settings.json";
+      state.config.claude.baseUrl = formData.get("claudeBaseUrl")?.trim() || "http://127.0.0.1:8787";
+      state.config.claude.localProxyPort = Number(formData.get("claudeLocalPort") || 8787);
+      state.config.claude.upstream = formData.get("claudeUpstream")?.trim() || "https://tokenrhythm.studio";
+
+      await saveConfig(false);
+      await generateTargets(["claude-gateway"]);
+      closeDrawer();
+      toast("Claude 网关配置已保存，代理文件与脚本已重新生成！");
+    });
+  }
+}
+
 function deleteProfile(id) {
   if (!state || !state.config) return;
   state.config.profiles = (state.config.profiles || []).filter((profile) => profile.id !== id);
@@ -594,14 +757,28 @@ async function previewFile(key) {
   }
 }
 
-function showEnvDrawer() {
-  if (!state || !state.env) return;
+async function showEnvDrawer() {
   const title = $("#drawerTitle");
   const eyebrow = $("#drawerEyebrow");
   const drawerBody = $("#drawerBody");
   const drawer = $("#drawer");
   if (eyebrow) eyebrow.textContent = "Environment Variables";
   if (title) title.textContent = "Windows 代理环境变量监控 (User / Process / Machine)";
+
+  if (drawerBody) drawerBody.innerHTML = `<div style="padding:24px;text-align:center;color:#a8b0a2;">正在读取系统最新环境变量...</div>`;
+  if (drawer) {
+    drawer.classList.add("open");
+    drawer.setAttribute("aria-hidden", "false");
+  }
+
+  try {
+    const payload = await api("/api/state");
+    state = payload.state;
+    render();
+  } catch (_e) {}
+
+  if (!state || !state.env) return;
+
   const rows = state.env.map((row) => `
     <tr>
       <td class="mono var-name">${escapeHtml(row.name)}</td>
@@ -631,10 +808,6 @@ function showEnvDrawer() {
     </p>
   `;
   if (drawerBody) drawerBody.innerHTML = tableHtml;
-  if (drawer) {
-    drawer.classList.add("open");
-    drawer.setAttribute("aria-hidden", "false");
-  }
 }
 
 function closeDrawer() {
@@ -800,9 +973,12 @@ document.addEventListener("click", async (event) => {
         await generateTargets(["agy-toggle"]);
         break;
 
-      case "add-profile":
-      case "addProfile":
-        addProfile();
+      case "open-proxy-settings":
+        openProxySettingsModal();
+        break;
+
+      case "open-claude-settings":
+        openClaudeSettingsModal();
         break;
 
       case "add-profile":
