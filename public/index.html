@@ -227,29 +227,13 @@
             <h2>任意软件 / CLI 独立代理与强制直连配置</h2>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button data-action="add-preset-codex" class="button secondary" type="button">+ 添加 Codex CLI</button>
-            <button data-action="add-preset-cursor" class="button secondary" type="button">+ 添加 Cursor</button>
-            <button data-action="add-profile" class="button primary" type="button">+ 新增自定义软件</button>
+            <button data-action="add-profile-proxy" class="button primary" type="button">+ 新增走代理软件</button>
+            <button data-action="add-profile-direct" class="button secondary" type="button">+ 新增强制直连软件</button>
+            <button data-action="add-preset-codex" class="button ghost" type="button">+ 添加 Codex CLI</button>
+            <button data-action="add-preset-cursor" class="button ghost" type="button">+ 添加 Cursor</button>
           </div>
         </div>
         <div id="profileList" class="profile-list"></div>
-      </section>
-
-      <section class="panel docs-panel">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">Guide</p>
-            <h2>下载即用说明</h2>
-          </div>
-        </div>
-        <p>
-          复制整个 <span class="mono">ScopeSwitch</span> 目录到新电脑，安装 Node.js 18+，双击
-          <span class="mono">start.cmd</span>。第一次打开后先设置端口，再按需要生成 Claude 或 Agy 脚本。
-        </p>
-        <p class="hint">
-          详细说明在 <span class="mono">docs/GLOBAL_PROXY_GUIDE.md</span>，所有本机配置保存在
-          <span class="mono">data/config.json</span>。
-        </p>
       </section>
     </main>
 

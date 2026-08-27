@@ -716,6 +716,34 @@ document.addEventListener("click", async (event) => {
         addProfile();
         break;
 
+      case "add-profile":
+      case "addProfile":
+      case "add-profile-proxy":
+        addProfile({
+          name: "新代理软件",
+          proxyMode: "process",
+          proxyHost: "127.0.0.1",
+          proxyPort: state?.config?.proxy?.port || 7890,
+          command: "",
+          args: "",
+          note: "单进程注入独立代理",
+        });
+        toast("已添加走代理软件配置卡片，请填写执行命令。");
+        break;
+
+      case "add-profile-direct":
+        addProfile({
+          name: "新直连软件",
+          proxyMode: "force-direct",
+          proxyHost: "127.0.0.1",
+          proxyPort: state?.config?.proxy?.port || 7890,
+          command: "",
+          args: "",
+          note: "强行走本地宽带直连",
+        });
+        toast("已添加强制直连软件配置卡片，请填写执行命令。");
+        break;
+
       case "add-preset-codex":
         addProfile({
           id: "codex",
@@ -804,12 +832,27 @@ document.addEventListener("click", async (event) => {
   }
 });
 
-// Auto save profile modifications on change
-document.addEventListener("change", (event) => {
-  if (event.target.closest("[data-profile-card]")) {
-    saveConfig(false).then(() => {
-      renderRoutingMatrix();
-    });
+// Auto save profile modifications on change, regenerate script, and launch if command exists
+document.addEventListener("change", async (event) => {
+  const card = event.target.closest("[data-profile-card]");
+  if (card) {
+    const profileId = card.dataset.profileId;
+    await saveConfig(false);
+    renderRoutingMatrix();
+    if (profileId) {
+      const profile = (state?.config?.profiles || []).find((p) => p.id === profileId);
+      if (profile && profile.command) {
+        try {
+          await generateTargets(["profile-script"], { profileId });
+          await api("/api/launch-profile", { profileId });
+          toast(`配置已保存，已更新脚本并自动启动: ${profile.name || profileId}`);
+        } catch (err) {
+          toast(`配置已更新，但自动启动失败: ${err.message}`, true);
+        }
+      } else {
+        toast("配置已保存。填写执行命令后将自动生成脚本并启动。");
+      }
+    }
   }
 });
 
