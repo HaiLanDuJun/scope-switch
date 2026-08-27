@@ -296,11 +296,14 @@ function renderRoutingMatrix() {
       { key: "当前模型配置", val: state.claude?.model || "默认 (未指定)" },
     ],
     actionsHtml: `
+      <button data-action="toggle-gateway" class="button ${(state.ports || {}).claudeListening ? "secondary" : "primary"}" type="button">
+        ${(state.ports || {}).claudeListening ? "⏹️ 停止本地网关 (8787)" : "▶️ 启动本地网关 (8787)"}
+      </button>
       ${claudeBypass
         ? `<button data-action="disable-claude-bypass" class="button ghost" type="button">移除专属绕过</button>`
         : `<button data-action="enable-claude-bypass" class="button primary" type="button">开启专属绕过</button>`
       }
-      <button data-action="generate-claude-gateway" class="button secondary" type="button">生成网关启动脚本</button>
+      <button data-action="generate-claude-gateway" class="button secondary" type="button">重新生成网关脚本</button>
     `,
   });
 
@@ -419,6 +422,7 @@ function renderFiles() {
       <div class="file-path mono" title="${escapeHtml(file.path)}" style="margin: 6px 0;">${escapeHtml(file.path)}</div>
       <div style="display:flex;gap:6px;margin-top:4px;">
         <button class="button ghost" type="button" data-action="preview-file" data-file-key="${escapeHtml(file.key)}" ${file.exists ? "" : "disabled"}>查看脚本代码</button>
+        <button class="button ghost" type="button" data-action="delete-file" data-file-key="${escapeHtml(file.key)}" ${file.exists ? "" : "disabled"} style="color:var(--warn);border-color:var(--warn-light);" title="删除此脚本文件（若为软件专属脚本，将同步删除配置卡片）">🗑️ 删除脚本</button>
       </div>
     </div>
   `).join("");
@@ -740,9 +744,33 @@ document.addEventListener("click", async (event) => {
         toast("已添加 Cursor 预设配置。");
         break;
 
+      case "toggle-gateway": {
+        const payload = await api("/api/toggle-gateway");
+        state = payload.state;
+        render();
+        toast(payload.output || "本地网关状态已切换。");
+        break;
+      }
+
       case "delete-profile": {
         const profileId = target.dataset.profileId;
-        if (profileId) deleteProfile(profileId);
+        if (profileId) {
+          const payload = await api("/api/delete-profile", { profileId });
+          state = payload.state;
+          render();
+          toast("已删除该软件配置及对应的专属启动脚本。");
+        }
+        break;
+      }
+
+      case "delete-file": {
+        const fileKey = target.dataset.fileKey;
+        if (fileKey) {
+          const payload = await api("/api/delete-file", { key: fileKey });
+          state = payload.state;
+          render();
+          toast("脚本文件已删除（若为软件专属脚本已同步清除配置卡片）。");
+        }
         break;
       }
 

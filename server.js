@@ -642,6 +642,10 @@ function safeFilePart(value) {
   return String(value || "profile").replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "profile";
 }
 
+function getProfileScriptPath(profile) {
+  return path.join(SCRIPTS_DIR, `${safeFilePart(profile.id || profile.name)}-starter.cmd`);
+}
+
 function generateProfileScript(config, profileId) {
   ensureBaseDirs();
   const profile = config.profiles.find((item) => item.id === profileId);
@@ -1010,6 +1014,55 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && url.pathname === "/api/launch-profile") {
       const result = launchProfile(readConfig(), body.profileId);
       sendJson(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/delete-file") {
+      const config = readConfig();
+      const key = body.key;
+      const file = knownFiles(config).find((item) => item.key === key);
+      if (!file) {
+        sendJson(res, 404, { ok: false, error: "未找到该文件键名。" });
+        return;
+      }
+      if (fs.existsSync(file.path)) {
+        backupFile(file.path);
+        fs.unlinkSync(file.path);
+      }
+      // 如果删除的是某个 profile 的专属脚本，自动同步删除对应的 profile 卡片配置
+      if (key.startsWith("profile_")) {
+        const profileId = key.replace("profile_", "");
+        config.profiles = (config.profiles || []).filter((p) => p.id !== profileId);
+        writeConfig(config);
+      }
+      sendJson(res, 200, { ok: true, state: await getState() });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/delete-profile") {
+      const config = readConfig();
+      const profileId = body.profileId;
+      const targetProfile = (config.profiles || []).find((p) => p.id === profileId);
+      if (targetProfile) {
+        const scriptPath = getProfileScriptPath(targetProfile);
+        if (fs.existsSync(scriptPath)) {
+          backupFile(scriptPath);
+          fs.unlinkSync(scriptPath);
+        }
+      }
+      config.profiles = (config.profiles || []).filter((p) => p.id !== profileId);
+      writeConfig(config);
+      sendJson(res, 200, { ok: true, state: await getState() });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/toggle-gateway") {
+      const scriptPath = path.join(SCRIPTS_DIR, "switch-tokenrhythm-proxy.ps1");
+      if (!fs.existsSync(scriptPath)) {
+        generateClaudeGatewayFiles(readConfig());
+      }
+      const output = await runPowerShell(`& ${psString(scriptPath)}`);
+      sendJson(res, 200, { ok: true, output, state: await getState() });
       return;
     }
 
