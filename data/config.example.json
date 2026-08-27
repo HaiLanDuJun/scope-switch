@@ -1,0 +1,34 @@
+{
+  "proxy": {
+    "scheme": "http",
+    "host": "127.0.0.1",
+    "port": 7890
+  },
+  "bypassHosts": [
+    "localhost",
+    "127.0.0.1",
+    "::1"
+  ],
+  "scriptTargetDir": "%USERPROFILE%\\Desktop",
+  "claude": {
+    "settingsPath": "%USERPROFILE%\\.claude\\settings.json",
+    "configDir": "%USERPROFILE%\\.claude",
+    "baseUrl": "http://127.0.0.1:8787",
+    "localProxyPort": 8787,
+    "upstream": "https://tokenrhythm.studio"
+  },
+  "profiles": [
+    {
+      "id": "agy",
+      "name": "Agy",
+      "kind": "software",
+      "proxyMode": "process",
+      "proxyHost": "127.0.0.1",
+      "proxyPort": 7890,
+      "command": "agy",
+      "args": "",
+      "workingDir": "",
+      "note": "Inject proxy variables only into the Agy process."
+    }
+  ]
+}

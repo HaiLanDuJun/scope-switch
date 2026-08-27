@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ScopeSwitch Proxy Console</title>
+    <link rel="stylesheet" href="/styles.css?v=3" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <div class="brand-line">
+          <h1>ScopeSwitch</h1>
+          <span class="version-tag">Proxy Console</span>
+        </div>
+        <p class="eyebrow">Windows 本地代理与软件流量分流管理器</p>
+      </div>
+      <div class="top-actions">
+        <div id="masterRouteBadge" class="route-badge direct">
+          <span class="route-icon">⚡</span>
+          <div class="route-info">
+            <span class="route-sub">系统主网络走向</span>
+            <span class="route-main" id="masterRouteText">本地网络 (直连)</span>
+          </div>
+        </div>
+        <button id="viewEnvBtn" class="button ghost" type="button">查看系统环境变量</button>
+        <button id="refreshBtn" class="button ghost" type="button">刷新状态</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <!-- 实时网络与软件分流监控面板 -->
+      <section class="panel wide-panel status-hub-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Live Matrix</p>
+            <h2>当前代理流向与软件清单</h2>
+          </div>
+          <div class="filter-tabs" id="matrixFilter">
+            <button class="filter-tab active" data-filter="all" type="button">全部组件</button>
+            <button class="filter-tab" data-filter="proxy" type="button">🚀 走代理</button>
+            <button class="filter-tab" data-filter="direct" type="button">⚡ 走本地直连</button>
+            <button class="filter-tab" data-filter="gateway" type="button">🔄 本地网关</button>
+          </div>
+        </div>
+
+        <div class="status-summary-grid">
+          <div class="summary-card" id="summaryGlobalCard">
+            <div class="summary-icon">🌐</div>
+            <div class="summary-content">
+              <span class="summary-label">全局终端代理</span>
+              <strong class="summary-value" id="summaryGlobalVal">本地网络 (直连)</strong>
+              <span class="summary-desc" id="summaryGlobalDesc">用户环境变量未设置代理</span>
+            </div>
+            <span class="status-badge" id="summaryGlobalBadge">直连</span>
+          </div>
+
+          <div class="summary-card" id="summaryProxyPortCard">
+            <div class="summary-icon">🔌</div>
+            <div class="summary-content">
+              <span class="summary-label">代理客户端端口 (<span id="proxyPortNum">7890</span>)</span>
+              <strong class="summary-value" id="summaryProxyPortVal">检测中...</strong>
+              <span class="summary-desc" id="summaryProxyPortDesc">Clash / v2ray / 本地客户端</span>
+            </div>
+            <span class="status-badge" id="summaryProxyPortBadge">检测中</span>
+          </div>
+
+          <div class="summary-card" id="summaryClaudeGatewayCard">
+            <div class="summary-icon">🤖</div>
+            <div class="summary-content">
+              <span class="summary-label">Claude TokenRhythm 网关 (<span id="claudePortNum">8787</span>)</span>
+              <strong class="summary-value" id="summaryClaudePortVal">检测中...</strong>
+              <span class="summary-desc" id="summaryClaudePortDesc">转接 TokenRhythm Upstream</span>
+            </div>
+            <span class="status-badge" id="summaryClaudePortBadge">检测中</span>
+          </div>
+        </div>
+
+        <!-- 软件与组件清单矩阵 -->
+        <div id="routingMatrixList" class="routing-matrix-grid">
+          <!-- 动态渲染 -->
+        </div>
+      </section>
+
+      <section class="panel hero-panel">
+        <div class="hero-copy">
+          <p class="eyebrow">快捷策略切换</p>
+          <h2>支持「系统全局环境变量」与「应用专属配置文件」双模式</h2>
+        </div>
+        <div class="strategy-grid">
+          <div class="strategy-card">
+            <span class="strategy-index">01</span>
+            <h3>全局代理开关</h3>
+            <p>写入 Windows 用户级 <span class="mono">HTTP_PROXY</span>，所有新开的终端和软件将走 7890 代理。</p>
+            <div class="card-btn-group">
+              <button data-action="enable-global" class="button primary" type="button">开启全局代理</button>
+              <button data-action="disable-global" class="button secondary" type="button">恢复本地直连</button>
+            </div>
+          </div>
+          <div class="strategy-card">
+            <span class="strategy-index">02</span>
+            <h3>系统全局 NO_PROXY</h3>
+            <p>写入 Windows 用户级 <span class="mono">NO_PROXY</span>，<strong>整个系统</strong>所有终端访问 127.0.0.1 均直连。</p>
+            <div class="card-btn-group">
+              <button data-action="enable-global-bypass" class="button primary" type="button">开启系统全局绕过</button>
+              <button data-action="disable-global-bypass" class="button secondary" type="button">清除系统全局绕过</button>
+            </div>
+          </div>
+          <div class="strategy-card">
+            <span class="strategy-index">03</span>
+            <h3>Claude 专属文件绕过</h3>
+            <p>仅写入 Claude 的 <span class="mono">settings.json</span>，<strong>仅当前应用生效</strong>，不污染系统全局。</p>
+            <div class="card-btn-group">
+              <button data-action="enable-claude-bypass" class="button primary" type="button">开启 Claude 专属绕过</button>
+              <button data-action="disable-claude-bypass" class="button secondary" type="button">移除专属绕过</button>
+            </div>
+          </div>
+          <div class="strategy-card">
+            <span class="strategy-index">04</span>
+            <h3>Agy 单进程代理</h3>
+            <p>仅在 Agy 启动进程时注入代理，<strong>完全独立运行</strong>，不碰任何系统环境变量。</p>
+            <div class="card-btn-group">
+              <button data-action="launch-profile" data-profile-id="agy" class="button primary" type="button">直接启动 Agy</button>
+              <button data-action="generate-profile" data-profile-id="agy" class="button secondary" type="button">生成启动脚本</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Proxy</p>
+            <h2>代理端口</h2>
+          </div>
+          <span id="globalState" class="status-pill muted">未知</span>
+        </div>
+        <div class="form-grid two">
+          <label>
+            <span>协议</span>
+            <select id="proxyScheme">
+              <option value="http">http</option>
+              <option value="https">https</option>
+            </select>
+          </label>
+          <label>
+            <span>地址</span>
+            <input id="proxyHost" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>端口</span>
+            <input id="proxyPort" type="number" min="1" max="65535" />
+          </label>
+          <label>
+            <span>绕过地址</span>
+            <input id="bypassHosts" type="text" autocomplete="off" />
+          </label>
+        </div>
+        <div class="actions-row">
+          <button id="saveConfig" class="button primary" type="button">保存配置</button>
+          <span id="proxyUrlLabel" class="mono hint"></span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Claude</p>
+            <h2>Claude 本地 API</h2>
+          </div>
+          <span id="claudeState" class="status-pill muted">未知</span>
+        </div>
+        <div class="form-grid two">
+          <label class="wide">
+            <span>Claude settings 路径</span>
+            <input id="claudeSettingsPath" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>本地 Base URL</span>
+            <input id="claudeBaseUrl" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>TokenRhythm 端口</span>
+            <input id="claudeLocalPort" type="number" min="1" max="65535" />
+          </label>
+          <label>
+            <span>TokenRhythm 上游</span>
+            <input id="claudeUpstream" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>默认模型</span>
+            <input id="claudeModel" type="text" autocomplete="off" placeholder="留空则不改" />
+          </label>
+          <label class="wide">
+            <span>Auth Token</span>
+            <input id="claudeAuthToken" type="password" autocomplete="off" placeholder="留空则不写入或不改动" />
+          </label>
+        </div>
+        <div class="actions-row">
+          <button id="saveClaudeEnv" class="button primary" type="button">写入 Claude 环境</button>
+          <button id="generateClaudeGateway" class="button secondary" type="button">生成 Claude 代理文件</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Project Scripts</p>
+            <h2>项目专属脚本库 (scripts/)</h2>
+          </div>
+          <button data-action="generate-all-scripts" class="button primary" type="button">一键重新生成全部脚本</button>
+        </div>
+        <p class="hint" style="margin-bottom: 12px;">
+          所有启动与切换脚本均存放在项目专属的 <span class="mono">scripts/</span> 文件夹中，绿色独立便携，不污染外部桌面或全局目录。
+        </p>
+        <label class="single-field">
+          <span>当前脚本存放目录</span>
+          <input id="scriptTargetDir" type="text" autocomplete="off" readonly style="background:#f7f6f3;" />
+        </label>
+        <div id="fileList" class="file-list"></div>
+      </section>
+
+      <section class="panel wide-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Custom Profiles & CLIs</p>
+            <h2>任意软件 / CLI 独立代理与强制直连配置</h2>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button data-action="add-preset-codex" class="button secondary" type="button">+ 添加 Codex CLI</button>
+            <button data-action="add-preset-cursor" class="button secondary" type="button">+ 添加 Cursor</button>
+            <button data-action="add-profile" class="button primary" type="button">+ 新增自定义软件</button>
+          </div>
+        </div>
+        <div id="profileList" class="profile-list"></div>
+      </section>
+
+      <section class="panel docs-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Guide</p>
+            <h2>下载即用说明</h2>
+          </div>
+        </div>
+        <p>
+          复制整个 <span class="mono">ScopeSwitch</span> 目录到新电脑，安装 Node.js 18+，双击
+          <span class="mono">start.cmd</span>。第一次打开后先设置端口，再按需要生成 Claude 或 Agy 脚本。
+        </p>
+        <p class="hint">
+          详细说明在 <span class="mono">docs/GLOBAL_PROXY_GUIDE.md</span>，所有本机配置保存在
+          <span class="mono">data/config.json</span>。
+        </p>
+      </section>
+    </main>
+
+    <aside id="drawer" class="drawer" aria-hidden="true">
+      <div class="drawer-card">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">File Preview</p>
+            <h2 id="drawerTitle">文件内容</h2>
+          </div>
+          <button id="closeDrawer" class="button ghost" type="button">关闭</button>
+        </div>
+        <pre id="filePreview"></pre>
+      </div>
+    </aside>
+
+    <div id="toast" class="toast" role="status"></div>
+    <script src="/app.js?v=3"></script>
+  </body>
+</html>

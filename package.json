@@ -1,0 +1,26 @@
+{
+  "name": "scope-switch",
+  "version": "0.1.0",
+  "description": "Portable Windows proxy scope switcher for AI tools.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "keywords": [
+    "proxy",
+    "windows",
+    "claude-code",
+    "http-proxy",
+    "environment-variables",
+    "ai-tools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HaiLanDuJun/scope-switch.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
