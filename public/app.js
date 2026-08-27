@@ -658,26 +658,26 @@ function openClaudeSettingsModal() {
   const formHtml = `
     <form id="claudeModalForm" class="modal-form">
       <label>
-        <span>Claude settings.json 路径</span>
-        <input name="claudeSettingsPath" value="${escapeHtml(config.claude?.settingsPath || "%USERPROFILE%\\.claude\\settings.json")}" placeholder="%USERPROFILE%\\.claude\\settings.json" required />
+        <span>Claude settings.json 路径 (可选)</span>
+        <input name="claudeSettingsPath" value="${escapeHtml(config.claude?.settingsPath || "%USERPROFILE%\\.claude\\settings.json")}" placeholder="%USERPROFILE%\\.claude\\settings.json (可选)" />
       </label>
       <div class="form-grid two" style="gap:12px;">
         <label>
-          <span>本地 Base URL (Claude请求地址)</span>
-          <input name="claudeBaseUrl" value="${escapeHtml(state.claude?.baseUrl || config.claude?.baseUrl || "http://127.0.0.1:8787")}" placeholder="http://127.0.0.1:8787" />
+          <span>本地 Base URL (可选)</span>
+          <input name="claudeBaseUrl" value="${escapeHtml(state.claude?.baseUrl || config.claude?.baseUrl || "")}" placeholder="http://127.0.0.1:8787 (可选)" />
         </label>
         <label>
-          <span>本地网关监听端口</span>
-          <input name="claudeLocalPort" type="number" min="1" max="65535" value="${escapeHtml(config.claude?.localProxyPort || 8787)}" required />
+          <span>本地网关监听端口 (可选)</span>
+          <input name="claudeLocalPort" type="number" min="1" max="65535" value="${escapeHtml(config.claude?.localProxyPort || 8787)}" placeholder="8787" />
         </label>
       </div>
       <div class="form-grid two" style="gap:12px;">
         <label>
-          <span>TokenRhythm 上游服务地址</span>
-          <input name="claudeUpstream" value="${escapeHtml(config.claude?.upstream || "https://tokenrhythm.studio")}" placeholder="https://tokenrhythm.studio" required />
+          <span>TokenRhythm 上游服务地址 (可选)</span>
+          <input name="claudeUpstream" value="${escapeHtml(config.claude?.upstream || "")}" placeholder="https://tokenrhythm.studio (可选)" />
         </label>
         <label>
-          <span>默认模型</span>
+          <span>默认模型 (可选)</span>
           <input name="claudeModel" value="${escapeHtml(state.claude?.model || "")}" placeholder="留空则不修改 (例如 glm-5.2)" />
         </label>
       </div>
@@ -688,7 +688,7 @@ function openClaudeSettingsModal() {
       <div class="modal-actions">
         <button type="button" class="button ghost" id="claudeModalCancelBtn">取消</button>
         <button type="button" class="button secondary" id="claudeWriteEnvBtn">写入 Claude 环境 (settings.json)</button>
-        <button type="submit" class="button primary">💾 保存并生成网关文件</button>
+        <button type="submit" class="button primary">💾 保存网关配置</button>
       </div>
     </form>
   `;
