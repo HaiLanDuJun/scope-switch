@@ -75,23 +75,8 @@ function currentConfigFromForm() {
   if (claudePort) config.claude.localProxyPort = Number(claudePort.value || 8787);
   const claudeUp = $("#claudeUpstream");
   if (claudeUp) config.claude.upstream = claudeUp.value.trim() || "https://tokenrhythm.studio";
-  config.profiles = collectProfiles();
+  config.profiles = state.config.profiles || [];
   return config;
-}
-
-function collectProfiles() {
-  return Array.from(document.querySelectorAll("[data-profile-card]")).map((card) => ({
-    id: card.dataset.profileId,
-    name: card.querySelector("[data-field='name']")?.value.trim() || card.dataset.profileId,
-    kind: "software",
-    proxyMode: card.querySelector("[data-field='proxyMode']")?.value || "process",
-    proxyHost: card.querySelector("[data-field='proxyHost']")?.value.trim() || "127.0.0.1",
-    proxyPort: Number(card.querySelector("[data-field='proxyPort']")?.value || (state?.config?.proxy?.port || 7890)),
-    command: card.querySelector("[data-field='command']")?.value.trim() || "",
-    args: card.querySelector("[data-field='args']")?.value.trim() || "",
-    workingDir: card.querySelector("[data-field='workingDir']")?.value.trim() || "",
-    note: card.querySelector("[data-field='note']")?.value.trim() || "",
-  }));
 }
 
 async function saveConfig(showToast = true) {
@@ -179,9 +164,8 @@ function render() {
   // Live Routing Matrix
   renderRoutingMatrix();
 
-  // Files & Profiles
+  // Files
   renderFiles();
-  renderProfiles();
 }
 
 function renderSummaryCards() {
@@ -358,7 +342,9 @@ function renderRoutingMatrix() {
       ],
       actionsHtml: `
         <button data-action="launch-profile" data-profile-id="${escapeHtml(profile.id)}" class="button primary" type="button">启动软件</button>
-        <button data-action="generate-profile" data-profile-id="${escapeHtml(profile.id)}" class="button secondary" type="button">生成启动脚本</button>
+        <button data-action="edit-profile" data-profile-id="${escapeHtml(profile.id)}" class="button secondary" type="button">✏️ 编辑配置</button>
+        <button data-action="generate-profile" data-profile-id="${escapeHtml(profile.id)}" class="button ghost" type="button">生成脚本</button>
+        <button data-action="delete-profile" data-profile-id="${escapeHtml(profile.id)}" class="button ghost" type="button" style="color:var(--warn);border-color:var(--warn-light);">🗑️ 删除</button>
       `,
     });
   }
@@ -451,69 +437,157 @@ function renderFiles() {
   container.innerHTML = rows + paginationHtml;
 }
 
-function renderProfiles() {
-  const container = $("#profileList");
-  if (!container || !state || !state.config?.profiles) return;
-  const defaultPort = state.config?.proxy?.port || 7890;
+function openProfileModal(profile = null, defaultMode = "process") {
+  const isEditing = Boolean(profile && profile.id);
+  const defaultPort = state?.config?.proxy?.port || 7890;
+  const currentProfile = profile || {
+    id: `profile-${Date.now()}`,
+    name: defaultMode === "force-direct" ? "新直连应用" : "新代理应用",
+    kind: "software",
+    proxyMode: defaultMode,
+    proxyHost: "127.0.0.1",
+    proxyPort: defaultPort,
+    command: "",
+    args: "",
+    workingDir: "",
+    note: defaultMode === "force-direct" ? "强行走本地网络直连" : "独立指定代理 (单进程生效)",
+  };
 
-  const rows = state.config.profiles.map((profile) => {
-    const isDirect = profile.proxyMode === "force-direct" || profile.proxyMode === "bypass-local";
-    const isProcess = profile.proxyMode === "process" || profile.proxyMode === "dedicated-proxy";
-    return `
-      <div class="profile-card" data-profile-card data-profile-id="${escapeHtml(profile.id)}">
+  const title = $("#drawerTitle");
+  const eyebrow = $("#drawerEyebrow");
+  const drawerBody = $("#drawerBody");
+  const drawer = $("#drawer");
+
+  if (eyebrow) eyebrow.textContent = isEditing ? "Edit Profile" : "New Profile";
+  if (title) title.textContent = isEditing ? `编辑软件配置 - ${currentProfile.name || currentProfile.id}` : "新增自定义软件 / CLI 独立配置";
+
+  const isDirect = currentProfile.proxyMode === "force-direct" || currentProfile.proxyMode === "bypass-local";
+  const isProcess = currentProfile.proxyMode === "process" || currentProfile.proxyMode === "dedicated-proxy";
+
+  const formHtml = `
+    <form id="profileModalForm" class="modal-form" data-modal-profile-id="${escapeHtml(currentProfile.id)}" data-is-editing="${isEditing}">
+      <label>
+        <span>软件 / CLI 名称</span>
+        <input name="name" value="${escapeHtml(currentProfile.name)}" placeholder="例如 Agy / Codex / Cursor / 我的工具" required />
+      </label>
+      <label>
+        <span>代理路由策略</span>
+        <select name="proxyMode">
+          <option value="process" ${isProcess ? "selected" : ""}>🚀 独立指定代理 (单进程注入代理)</option>
+          <option value="force-direct" ${isDirect ? "selected" : ""}>⚡ 强行走本地直连 (绕过系统全局代理)</option>
+          <option value="none" ${currentProfile.proxyMode === "none" ? "selected" : ""}>🌐 跟随系统全局环境</option>
+        </select>
+      </label>
+      <label>
+        <span>执行命令 / 可执行文件路径</span>
+        <input name="command" value="${escapeHtml(currentProfile.command)}" placeholder="例如 agy / codex / cursor / D:\\app\\tool.exe" />
+      </label>
+      <div class="form-grid two" style="gap:12px;">
         <label>
-          <span>软件 / CLI 名称</span>
-          <input data-field="name" value="${escapeHtml(profile.name)}" placeholder="例如 Agy / Codex / Cursor" />
+          <span>代理主机</span>
+          <input name="proxyHost" value="${escapeHtml(currentProfile.proxyHost || "127.0.0.1")}" placeholder="127.0.0.1" />
         </label>
         <label>
-          <span>代理路由策略</span>
-          <select data-field="proxyMode">
-            <option value="process" ${isProcess ? "selected" : ""}>🚀 独立指定代理 (单进程生效)</option>
-            <option value="force-direct" ${isDirect ? "selected" : ""}>⚡ 强行走本地直连 (绕过系统全局)</option>
-            <option value="none" ${profile.proxyMode === "none" ? "selected" : ""}>🌐 跟随系统全局环境</option>
-          </select>
+          <span>代理端口</span>
+          <input name="proxyPort" type="number" min="1" max="65535" value="${escapeHtml(currentProfile.proxyPort || defaultPort)}" placeholder="7890" />
         </label>
-        <label>
-          <span>执行命令 / 可执行文件路径</span>
-          <input data-field="command" value="${escapeHtml(profile.command)}" placeholder="例如 agy / codex / cursor / C:\\app.exe" />
-        </label>
-        <label>
-          <span>代理主机与端口 (仅独立代理生效)</span>
-          <div style="display:flex;gap:6px;">
-            <input data-field="proxyHost" value="${escapeHtml(profile.proxyHost || "127.0.0.1")}" placeholder="127.0.0.1" style="flex:1.2;" />
-            <input data-field="proxyPort" type="number" min="1" max="65535" value="${escapeHtml(profile.proxyPort || defaultPort)}" placeholder="7890" style="flex:1;" />
-          </div>
-        </label>
-        <label>
-          <span>运行参数</span>
-          <input data-field="args" value="${escapeHtml(profile.args)}" placeholder="可选启动参数" />
-        </label>
-        <label>
-          <span>工作目录</span>
-          <input data-field="workingDir" value="${escapeHtml(profile.workingDir)}" placeholder="留空则当前目录" />
-        </label>
-        <label class="note-field">
-          <span>备注说明</span>
-          <input data-field="note" value="${escapeHtml(profile.note)}" placeholder="如：用于 OpenAI Codex CLI 强制走本地网络" />
-        </label>
-        <div class="profile-actions">
-          <button class="button primary" type="button" data-action="launch-profile" data-profile-id="${escapeHtml(profile.id)}">启动软件</button>
-          <button class="button secondary" type="button" data-action="generate-profile" data-profile-id="${escapeHtml(profile.id)}">生成脚本</button>
-          <button class="button ghost" type="button" data-action="delete-profile" data-profile-id="${escapeHtml(profile.id)}">删除</button>
-        </div>
       </div>
-    `;
-  }).join("");
-  container.innerHTML = rows;
+      <label>
+        <span>运行参数 (可留空)</span>
+        <input name="args" value="${escapeHtml(currentProfile.args)}" placeholder="例如 --model deepseek-chat" />
+      </label>
+      <label>
+        <span>工作目录 (留空则使用当前目录)</span>
+        <input name="workingDir" value="${escapeHtml(currentProfile.workingDir)}" placeholder="例如 D:\\Code\\Project" />
+      </label>
+      <label>
+        <span>备注说明</span>
+        <input name="note" value="${escapeHtml(currentProfile.note)}" placeholder="如：用于 OpenAI Codex CLI 强制走本地网络" />
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="button ghost" id="modalCancelBtn">取消</button>
+        <button type="submit" class="button primary">💾 保存配置并更新脚本</button>
+      </div>
+    </form>
+  `;
+
+  if (drawerBody) drawerBody.innerHTML = formHtml;
+  if (drawer) {
+    drawer.classList.add("open");
+    drawer.setAttribute("aria-hidden", "false");
+  }
+
+  const modalForm = $("#profileModalForm");
+  if (modalForm) {
+    $("#modalCancelBtn")?.addEventListener("click", closeDrawer);
+    modalForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formData = new FormData(modalForm);
+      const profileId = modalForm.dataset.modalProfileId;
+      const isEdit = modalForm.dataset.isEditing === "true";
+
+      const updated = {
+        id: profileId,
+        name: formData.get("name")?.trim() || profileId,
+        kind: "software",
+        proxyMode: formData.get("proxyMode") || "process",
+        proxyHost: formData.get("proxyHost")?.trim() || "127.0.0.1",
+        proxyPort: Number(formData.get("proxyPort") || defaultPort),
+        command: formData.get("command")?.trim() || "",
+        args: formData.get("args")?.trim() || "",
+        workingDir: formData.get("workingDir")?.trim() || "",
+        note: formData.get("note")?.trim() || "",
+      };
+
+      if (!state.config) state.config = {};
+      state.config.profiles = state.config.profiles || [];
+
+      if (isEdit) {
+        const idx = state.config.profiles.findIndex((p) => p.id === profileId);
+        if (idx !== -1) {
+          state.config.profiles[idx] = updated;
+        } else {
+          state.config.profiles.push(updated);
+        }
+      } else {
+        state.config.profiles.push(updated);
+      }
+
+      await saveConfig(false);
+      closeDrawer();
+
+      if (updated.command) {
+        try {
+          await generateTargets(["profile-script"], { profileId });
+          toast(`配置已保存，已生成专属脚本并已就绪: ${updated.name}`);
+        } catch (err) {
+          toast(`配置已保存，但脚本生成失败: ${err.message}`, true);
+        }
+      } else {
+        toast(`配置已保存: ${updated.name}`);
+      }
+    });
+  }
+}
+
+function deleteProfile(id) {
+  if (!state || !state.config) return;
+  state.config.profiles = (state.config.profiles || []).filter((profile) => profile.id !== id);
+  renderRoutingMatrix();
+  saveConfig(false);
 }
 
 async function previewFile(key) {
   const payload = await api(`/api/file?key=${encodeURIComponent(key)}`);
   const title = $("#drawerTitle");
-  const content = $("#filePreview");
+  const eyebrow = $("#drawerEyebrow");
+  const drawerBody = $("#drawerBody");
   const drawer = $("#drawer");
+  if (eyebrow) eyebrow.textContent = "File Preview";
   if (title) title.textContent = payload.path;
-  if (content) content.textContent = payload.content;
+  if (drawerBody) {
+    drawerBody.innerHTML = `<pre id="filePreview">${escapeHtml(payload.content)}</pre>`;
+  }
   if (drawer) {
     drawer.classList.add("open");
     drawer.setAttribute("aria-hidden", "false");
@@ -523,8 +597,10 @@ async function previewFile(key) {
 function showEnvDrawer() {
   if (!state || !state.env) return;
   const title = $("#drawerTitle");
-  const content = $("#filePreview");
+  const eyebrow = $("#drawerEyebrow");
+  const drawerBody = $("#drawerBody");
   const drawer = $("#drawer");
+  if (eyebrow) eyebrow.textContent = "Environment Variables";
   if (title) title.textContent = "Windows 代理环境变量监控 (User / Process / Machine)";
   const rows = state.env.map((row) => `
     <tr>
@@ -554,12 +630,13 @@ function showEnvDrawer() {
       修改后新打开的 CMD、PowerShell、Git 与 IDE 终端会自动继承最新代理设置。
     </p>
   `;
-  if (content) content.innerHTML = tableHtml;
+  if (drawerBody) drawerBody.innerHTML = tableHtml;
   if (drawer) {
     drawer.classList.add("open");
     drawer.setAttribute("aria-hidden", "false");
   }
 }
+
 function closeDrawer() {
   const drawer = $("#drawer");
   if (drawer) {
@@ -584,15 +661,6 @@ function addProfile(preset = null) {
     workingDir: "",
     note: preset?.note || "",
   });
-  renderProfiles();
-  renderRoutingMatrix();
-  saveConfig(false);
-}
-
-function deleteProfile(id) {
-  if (!state || !state.config) return;
-  state.config.profiles = (state.config.profiles || []).filter((profile) => profile.id !== id);
-  renderProfiles();
   renderRoutingMatrix();
   saveConfig(false);
 }
@@ -740,30 +808,23 @@ document.addEventListener("click", async (event) => {
       case "add-profile":
       case "addProfile":
       case "add-profile-proxy":
-        addProfile({
-          name: "新代理软件",
-          proxyMode: "process",
-          proxyHost: "127.0.0.1",
-          proxyPort: state?.config?.proxy?.port || 7890,
-          command: "",
-          args: "",
-          note: "单进程注入独立代理",
-        });
-        toast("已添加走代理软件配置卡片，请填写执行命令。");
+        openProfileModal(null, "process");
         break;
 
       case "add-profile-direct":
-        addProfile({
-          name: "新直连软件",
-          proxyMode: "force-direct",
-          proxyHost: "127.0.0.1",
-          proxyPort: state?.config?.proxy?.port || 7890,
-          command: "",
-          args: "",
-          note: "强行走本地宽带直连",
-        });
-        toast("已添加强制直连软件配置卡片，请填写执行命令。");
+        openProfileModal(null, "force-direct");
         break;
+
+      case "edit-profile": {
+        const profileId = target.dataset.profileId;
+        const profile = (state?.config?.profiles || []).find((p) => p.id === profileId);
+        if (profile) {
+          openProfileModal(profile);
+        } else {
+          toast("未找到该软件配置", true);
+        }
+        break;
+      }
 
       case "add-preset-codex":
         addProfile({
@@ -868,30 +929,6 @@ document.addEventListener("click", async (event) => {
   } finally {
     target.disabled = false;
     target.innerHTML = originalContent;
-  }
-});
-
-// Auto save profile modifications on change, regenerate script, and launch if command exists
-document.addEventListener("change", async (event) => {
-  const card = event.target.closest("[data-profile-card]");
-  if (card) {
-    const profileId = card.dataset.profileId;
-    await saveConfig(false);
-    renderRoutingMatrix();
-    if (profileId) {
-      const profile = (state?.config?.profiles || []).find((p) => p.id === profileId);
-      if (profile && profile.command) {
-        try {
-          await generateTargets(["profile-script"], { profileId });
-          await api("/api/launch-profile", { profileId });
-          toast(`配置已保存，已更新脚本并自动启动: ${profile.name || profileId}`);
-        } catch (err) {
-          toast(`配置已更新，但自动启动失败: ${err.message}`, true);
-        }
-      } else {
-        toast("配置已保存。填写执行命令后将自动生成脚本并启动。");
-      }
-    }
   }
 });
 

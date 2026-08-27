@@ -179,38 +179,25 @@
         </label>
         <div id="fileList" class="file-list"></div>
       </section>
-
-      <section class="panel wide-panel">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">Custom Profiles & CLIs</p>
-            <h2>任意软件 / CLI 独立代理与强制直连配置</h2>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button data-action="add-profile-proxy" class="button primary" type="button">+ 新增走代理软件</button>
-            <button data-action="add-profile-direct" class="button secondary" type="button">+ 新增强制直连软件</button>
-            <button data-action="add-preset-codex" class="button ghost" type="button">+ 添加 Codex CLI</button>
-            <button data-action="add-preset-cursor" class="button ghost" type="button">+ 添加 Cursor</button>
-          </div>
-        </div>
-        <div id="profileList" class="profile-list"></div>
-      </section>
     </main>
 
+    <!-- 侧边/弹窗抽屉 (用于查看脚本、环境变量以及编辑/新增配置卡片) -->
     <aside id="drawer" class="drawer" aria-hidden="true">
       <div class="drawer-card">
-        <div class="panel-heading">
+        <div class="panel-heading" style="margin-bottom:14px;">
           <div>
-            <p class="eyebrow">File Preview</p>
-            <h2 id="drawerTitle">文件内容</h2>
+            <p class="eyebrow" id="drawerEyebrow">Settings & Details</p>
+            <h2 id="drawerTitle">内容详情</h2>
           </div>
           <button id="closeDrawer" class="button ghost" type="button">关闭</button>
         </div>
-        <pre id="filePreview"></pre>
+        <div id="drawerBody" style="flex:1;overflow:auto;">
+          <pre id="filePreview"></pre>
+        </div>
       </div>
     </aside>
 
     <div id="toast" class="toast" role="status"></div>
-    <script src="/app.js?v=3"></script>
+    <script src="/app.js?v=4"></script>
   </body>
 </html>
