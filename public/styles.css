@@ -627,9 +627,26 @@ select:focus {
 
 .file-row {
   display: grid;
-  grid-template-columns: minmax(160px, 0.35fr) minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: minmax(180px, 0.28fr) minmax(0, 1fr) auto;
+  gap: 14px;
   align-items: center;
+}
+
+.file-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-subtle);
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .file-name {
@@ -668,19 +685,39 @@ select:focus {
   width: 100%;
   border-collapse: collapse;
   margin-top: 10px;
-  font-size: 13px;
+  font-size: 13.5px;
+  background: #1e201b;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 
 .env-table th,
 .env-table td {
-  padding: 8px 10px;
-  border: 1px solid var(--line);
+  padding: 10px 14px;
+  border: 1px solid #383d33;
   text-align: left;
 }
 
 .env-table th {
-  background: var(--soft);
+  background: #2b3026;
+  color: #a3e635;
   font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+}
+
+.env-table td {
+  color: #f3efe6;
+}
+
+.env-table td.var-name {
+  color: #67e8f9;
+  font-weight: bold;
+}
+
+.env-table td.empty-val {
+  color: #858e80;
+  font-style: italic;
 }
 
 /* Drawer */
@@ -689,8 +726,8 @@ select:focus {
   inset: 0;
   display: none;
   justify-content: flex-end;
-  background: rgba(20, 22, 18, 0.4);
-  backdrop-filter: blur(2px);
+  background: rgba(20, 22, 18, 0.6);
+  backdrop-filter: blur(4px);
   padding: 20px;
   z-index: 999;
 }
@@ -701,27 +738,28 @@ select:focus {
 
 .drawer-card {
   width: min(860px, 100%);
-  border: 1px solid var(--line);
+  border: 1px solid #444b3f;
   border-radius: var(--radius-lg);
-  background: var(--panel);
-  box-shadow: var(--shadow);
+  background: #181a15;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
   padding: 22px;
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 40px);
+  color: #f3efe6;
 }
 
 pre {
   flex: 1;
   overflow: auto;
-  border: 1px solid #33382f;
+  border: 1px solid #383d33;
   border-radius: var(--radius-sm);
-  background: #1a1c18;
+  background: #121410;
   color: #f3efe6;
   padding: 16px;
   white-space: pre-wrap;
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 13.5px;
+  line-height: 1.55;
 }
 
 .toast {

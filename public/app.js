@@ -1,5 +1,7 @@
 let state = null;
 let currentMatrixFilter = "all";
+let filePage = 1;
+const filePageSize = 5;
 
 const fileLabels = {
   agyPs1: "Toggle-Agy-Proxy.ps1",
@@ -410,7 +412,16 @@ function renderRoutingMatrix() {
 function renderFiles() {
   const container = $("#fileList");
   if (!container || !state || !state.files) return;
-  const rows = state.files.map((file) => `
+  const allFiles = state.files || [];
+  const total = allFiles.length;
+  const totalPages = Math.max(1, Math.ceil(total / filePageSize));
+  if (filePage > totalPages) filePage = totalPages;
+  if (filePage < 1) filePage = 1;
+
+  const startIdx = (filePage - 1) * filePageSize;
+  const pagedFiles = allFiles.slice(startIdx, startIdx + filePageSize);
+
+  const rows = pagedFiles.map((file) => `
     <div class="file-row">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <div>
@@ -426,7 +437,18 @@ function renderFiles() {
       </div>
     </div>
   `).join("");
-  container.innerHTML = rows;
+
+  const paginationHtml = totalPages > 1 ? `
+    <div class="file-pagination">
+      <span class="hint">共 ${total} 个脚本，当前第 ${filePage} / ${totalPages} 页</span>
+      <div class="pagination-controls">
+        <button class="button ghost" type="button" data-action="file-page-prev" ${filePage <= 1 ? "disabled" : ""}>◀ 上一页</button>
+        <button class="button ghost" type="button" data-action="file-page-next" ${filePage >= totalPages ? "disabled" : ""}>下一页 ▶</button>
+      </div>
+    </div>
+  ` : "";
+
+  container.innerHTML = rows + paginationHtml;
 }
 
 function renderProfiles() {
@@ -503,13 +525,13 @@ function showEnvDrawer() {
   const title = $("#drawerTitle");
   const content = $("#filePreview");
   const drawer = $("#drawer");
-  if (title) title.textContent = "Windows proxy environment variables";
+  if (title) title.textContent = "Windows 代理环境变量监控 (User / Process / Machine)";
   const rows = state.env.map((row) => `
     <tr>
-      <td class="mono" style="font-weight:bold;">${escapeHtml(row.name)}</td>
-      <td class="mono">${escapeHtml(row.user || "(not set)")}</td>
-      <td class="mono">${escapeHtml(row.process || "(not set)")}</td>
-      <td class="mono">${escapeHtml(row.machine || "(not set)")}</td>
+      <td class="mono var-name">${escapeHtml(row.name)}</td>
+      <td class="mono ${row.user ? "" : "empty-val"}">${escapeHtml(row.user || "(未设置)")}</td>
+      <td class="mono ${row.process ? "" : "empty-val"}">${escapeHtml(row.process || "(未设置)")}</td>
+      <td class="mono ${row.machine ? "" : "empty-val"}">${escapeHtml(row.machine || "(未设置)")}</td>
     </tr>
   `).join("");
 
@@ -517,20 +539,19 @@ function showEnvDrawer() {
     <table class="env-table">
       <thead>
         <tr>
-          <th>Variable</th>
-          <th>User scope</th>
-          <th>Current process</th>
-          <th>Machine scope</th>
+          <th>环境变量名称</th>
+          <th>用户作用域 (User)</th>
+          <th>当前后台进程 (Process)</th>
+          <th>系统机器作用域 (Machine)</th>
         </tr>
       </thead>
       <tbody>
         ${rows}
       </tbody>
     </table>
-    <p class="hint" style="margin-top: 14px; line-height: 1.6;">
-      ScopeSwitch changes <strong>User scope</strong> variables when toggling global proxy.
-      New CMD, PowerShell, and IDE terminals inherit the updated values. Reopen terminals
-      after changing global proxy state.
+    <p class="hint" style="margin-top: 14px; line-height: 1.6; color: #a8b0a2;">
+      💡 ScopeSwitch 开关全局代理时，修改的是 <strong>用户作用域 (User scope)</strong> 环境变量。<br/>
+      修改后新打开的 CMD、PowerShell、Git 与 IDE 终端会自动继承最新代理设置。
     </p>
   `;
   if (content) content.innerHTML = tableHtml;
@@ -823,6 +844,24 @@ document.addEventListener("click", async (event) => {
         if (fileKey) await previewFile(fileKey);
         break;
       }
+
+      case "file-page-prev": {
+        if (filePage > 1) {
+          filePage--;
+          renderFiles();
+        }
+        break;
+      }
+
+      case "file-page-next": {
+        const total = (state?.files || []).length;
+        const totalPages = Math.ceil(total / filePageSize);
+        if (filePage < totalPages) {
+          filePage++;
+          renderFiles();
+        }
+        break;
+      }
     }
   } catch (error) {
     toast(error.message || String(error), true);
@@ -863,6 +902,18 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("focus", () => {
   refresh();
 });
+
+// Periodic background refresh (keeps live matrix & ports in sync without manual reload)
+setInterval(() => {
+  if (document.visibilityState === "visible") {
+    api("/api/state")
+      .then((payload) => {
+        state = payload.state;
+        render();
+      })
+      .catch(() => {});
+  }
+}, 3000);
 
 // Initial load
 refresh();

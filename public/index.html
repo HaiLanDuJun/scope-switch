@@ -31,19 +31,26 @@
     <main class="layout">
       <!-- 实时网络与软件分流监控面板 -->
       <section class="panel wide-panel status-hub-panel">
-        <div class="panel-heading">
+        <div class="panel-heading" style="flex-wrap:wrap;gap:12px;">
           <div>
             <p class="eyebrow">Live Matrix</p>
             <h2>当前代理流向与软件清单</h2>
           </div>
-          <div class="filter-tabs" id="matrixFilter">
-            <button class="filter-tab active" data-filter="all" type="button">全部组件</button>
-            <button class="filter-tab" data-filter="proxy" type="button">🚀 走代理</button>
-            <button class="filter-tab" data-filter="direct" type="button">⚡ 走本地直连</button>
-            <button class="filter-tab" data-filter="gateway" type="button">🔄 本地网关</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <div class="filter-tabs" id="matrixFilter">
+              <button class="filter-tab active" data-filter="all" type="button">全部组件</button>
+              <button class="filter-tab" data-filter="proxy" type="button">🚀 走代理</button>
+              <button class="filter-tab" data-filter="direct" type="button">⚡ 走本地直连</button>
+              <button class="filter-tab" data-filter="gateway" type="button">🔄 本地网关</button>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button data-action="add-profile-proxy" class="button primary" type="button">+ 新增走代理卡片</button>
+              <button data-action="add-profile-direct" class="button secondary" type="button">+ 新增直连卡片</button>
+              <button data-action="add-preset-codex" class="button ghost" type="button">+ Codex</button>
+              <button data-action="add-preset-cursor" class="button ghost" type="button">+ Cursor</button>
+            </div>
           </div>
         </div>
-
         <div class="status-summary-grid">
           <div class="summary-card" id="summaryGlobalCard">
             <div class="summary-icon">🌐</div>
@@ -81,53 +88,6 @@
           <!-- 动态渲染 -->
         </div>
       </section>
-
-      <section class="panel hero-panel">
-        <div class="hero-copy">
-          <p class="eyebrow">快捷策略切换</p>
-          <h2>支持「系统全局环境变量」与「应用专属配置文件」双模式</h2>
-        </div>
-        <div class="strategy-grid">
-          <div class="strategy-card">
-            <span class="strategy-index">01</span>
-            <h3>全局代理开关</h3>
-            <p>写入 Windows 用户级 <span class="mono">HTTP_PROXY</span>，所有新开的终端和软件将走 7890 代理。</p>
-            <div class="card-btn-group">
-              <button data-action="enable-global" class="button primary" type="button">开启全局代理</button>
-              <button data-action="disable-global" class="button secondary" type="button">恢复本地直连</button>
-            </div>
-          </div>
-          <div class="strategy-card">
-            <span class="strategy-index">02</span>
-            <h3>系统全局 NO_PROXY</h3>
-            <p>写入 Windows 用户级 <span class="mono">NO_PROXY</span>，<strong>整个系统</strong>所有终端访问 127.0.0.1 均直连。</p>
-            <div class="card-btn-group">
-              <button data-action="enable-global-bypass" class="button primary" type="button">开启系统全局绕过</button>
-              <button data-action="disable-global-bypass" class="button secondary" type="button">清除系统全局绕过</button>
-            </div>
-          </div>
-          <div class="strategy-card">
-            <span class="strategy-index">03</span>
-            <h3>Claude 专属文件绕过</h3>
-            <p>仅写入 Claude 的 <span class="mono">settings.json</span>，<strong>仅当前应用生效</strong>，不污染系统全局。</p>
-            <div class="card-btn-group">
-              <button data-action="enable-claude-bypass" class="button primary" type="button">开启 Claude 专属绕过</button>
-              <button data-action="disable-claude-bypass" class="button secondary" type="button">移除专属绕过</button>
-            </div>
-          </div>
-          <div class="strategy-card">
-            <span class="strategy-index">04</span>
-            <h3>Agy 单进程代理</h3>
-            <p>仅在 Agy 启动进程时注入代理，<strong>完全独立运行</strong>，不碰任何系统环境变量。</p>
-            <div class="card-btn-group">
-              <button data-action="launch-profile" data-profile-id="agy" class="button primary" type="button">直接启动 Agy</button>
-              <button data-action="generate-profile" data-profile-id="agy" class="button secondary" type="button">生成启动脚本</button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Proxy</p>
@@ -202,7 +162,7 @@
         </div>
       </section>
 
-      <section class="panel">
+      <section class="panel wide-panel">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Project Scripts</p>
