@@ -37,7 +37,11 @@ jobs:
           Copy-Item -Path "start.cmd" -Destination $pkgDir
           Copy-Item -Path "README.md" -Destination $pkgDir
           Copy-Item -Path "public" -Destination "$pkgDir/public" -Recurse
-          Copy-Item -Path "scripts" -Destination "$pkgDir/scripts" -Recurse
+          if (Test-Path "scripts") {
+            Copy-Item -Path "scripts" -Destination "$pkgDir/scripts" -Recurse
+          } else {
+            New-Item -ItemType Directory -Path "$pkgDir/scripts" -Force | Out-Null
+          }
           
           # Download portable Node.js runtime for standalone zero-dependency execution
           $nodeVersion = "v20.18.0"
