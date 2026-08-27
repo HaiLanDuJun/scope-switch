@@ -1167,7 +1167,8 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   const url = `http://${HOST}:${PORT}`;
-  console.log(`ScopeSwitch running at ${url}`);
-  console.log(`Config: ${CONFIG_PATH}`);
+  console.log(`[OK] ScopeSwitch 已就绪: ${url}`);
+  console.log(`[OK] 配置文件路径: ${CONFIG_PATH}`);
+  console.log(`[TIP] 如需在外部浏览器中访问，请打开: ${url}`);
   openBrowser(url);
 });
