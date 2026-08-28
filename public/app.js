@@ -404,23 +404,26 @@ function renderFiles() {
 
   const rows = pagedFiles.map((file) => `
     <div class="file-row">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <strong class="file-name" style="font-size:14px;color:var(--text);">${escapeHtml(file.name || file.key)}</strong>
-          <span style="font-size:12px;color:var(--muted);">${escapeHtml(file.desc || "")}</span>
+      <div class="file-row-header">
+        <div class="file-title-wrap">
+          <span class="file-type-icon">📄</span>
+          <strong class="file-name">${escapeHtml(file.name || file.key)}</strong>
+          <span class="file-desc-tag">${escapeHtml(file.desc || "")}</span>
         </div>
-        <div style="display:flex;gap:6px;align-items:center;">
+        <div class="file-status-group">
           ${file.running
-            ? `<span class="status-pill ok" style="font-weight:700;">🟢 运行中</span>`
-            : `<span class="status-pill info" style="background:#f1f5f9;color:#64748b;">⚪ 未运行</span>`
+            ? `<span class="status-pill ok">🟢 运行中</span>`
+            : `<span class="status-pill idle">⚪ 未运行</span>`
           }
           <span class="status-pill ${file.exists ? "ok" : "warn"}">${file.exists ? "已生成" : "未生成"}</span>
         </div>
       </div>
-      <div class="file-path mono" title="${escapeHtml(file.path)}" style="margin: 6px 0;">${escapeHtml(file.path)}</div>
-      <div style="display:flex;gap:6px;margin-top:4px;">
-        <button class="button ghost" type="button" data-action="preview-file" data-file-key="${escapeHtml(file.key)}" ${file.exists ? "" : "disabled"}>查看脚本代码</button>
-        <button class="button ghost" type="button" data-action="delete-file" data-file-key="${escapeHtml(file.key)}" ${file.exists ? "" : "disabled"} style="color:var(--warn);border-color:var(--warn-light);" title="删除此脚本文件（若为软件专属脚本，将同步删除配置卡片）">🗑️ 删除脚本</button>
+      <div class="file-path mono" title="${escapeHtml(file.path)}">
+        <span class="path-label">路径:</span> ${escapeHtml(file.path)}
+      </div>
+      <div class="file-actions">
+        <button class="button ghost" type="button" data-action="preview-file" data-file-key="${escapeHtml(file.key)}" ${file.exists ? "" : "disabled"}>📄 查看代码</button>
+        <button class="button ghost delete-btn" type="button" data-action="delete-file" data-file-key="${escapeHtml(file.key)}" ${file.exists ? "" : "disabled"} title="删除此脚本文件（若为专属脚本将同步清除卡片）">🗑️ 删除脚本</button>
       </div>
     </div>
   `).join("");
@@ -1194,14 +1197,70 @@ document.addEventListener("click", async (event) => {
 
       case "stop-profile": {
         const profileId = target.dataset.profileId;
-        if (profileId) {
-          const payload = await api("/api/stop-profile", { profileId });
+        const profile = (state?.config?.profiles || []).find((p) => p.id === profileId);
+        if (!profileId || !profile) break;
+
+        const title = $("#drawerTitle");
+        const eyebrow = $("#drawerEyebrow");
+        const drawerBody = $("#drawerBody");
+        const drawer = $("#drawer");
+
+        if (eyebrow) eyebrow.textContent = "Confirm Stop";
+        if (title) title.textContent = `关闭配置 - ${profile.name || profile.id}`;
+
+        const confirmHtml = `
+          <div class="modal-form" style="display:flex;flex-direction:column;gap:16px;">
+            <p style="color:var(--text-main);font-size:14px;line-height:1.6;">
+              您正在关闭 <strong>${escapeHtml(profile.name || profile.id)}</strong> 的应用配置。请选择关闭策略：
+            </p>
+
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;background:#fafbfc;">
+                <input type="radio" name="stopStrategy" value="terminate" checked style="margin-top:3px;" />
+                <div>
+                  <strong style="color:var(--text-main);font-size:13.5px;display:block;">🛑 彻底关闭（释放端口并停止后台关联服务）</strong>
+                  <span style="color:var(--text-sub);font-size:12px;line-height:1.4;display:block;margin-top:2px;">
+                    将此配置标记为关闭，并释放关联的后台端口（如本地网关 ${profile.gatewayPort || 8787}）与子服务。
+                  </span>
+                </div>
+              </label>
+
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;background:#fafbfc;">
+                <input type="radio" name="stopStrategy" value="keep" style="margin-top:3px;" />
+                <div>
+                  <strong style="color:var(--text-main);font-size:13.5px;display:block;">⚪ 仅将卡片标记为未运行（保持当前后台进程不被杀死）</strong>
+                  <span style="color:var(--text-sub);font-size:12px;line-height:1.4;display:block;margin-top:2px;">
+                    仅将控制面板上的卡片状态重置为未运行，不强行终止外部正在工作的后台任务。
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            <div class="modal-actions" style="margin-top:8px;">
+              <button type="button" class="button ghost" id="stopCancelBtn">取消</button>
+              <button type="button" class="button primary" id="stopConfirmBtn">确认关闭</button>
+            </div>
+          </div>
+        `;
+
+        if (drawerBody) drawerBody.innerHTML = confirmHtml;
+        if (drawer) {
+          drawer.classList.add("open");
+          drawer.setAttribute("aria-hidden", "false");
+        }
+
+        $("#stopCancelBtn")?.addEventListener("click", closeDrawer);
+        $("#stopConfirmBtn")?.addEventListener("click", async () => {
+          const selected = document.querySelector("input[name='stopStrategy']:checked")?.value;
+          const terminate = selected === "terminate";
+          closeDrawer();
+          const payload = await api("/api/stop-profile", { profileId, terminate });
           if (payload.state) {
             state = payload.state;
             render();
           }
-          toast("已关闭该配置运行中的后台服务与进程。");
-        }
+          toast(terminate ? "已关闭该配置并停止关联的后台服务。" : "已将配置状态置为未运行。");
+        });
         break;
       }
 

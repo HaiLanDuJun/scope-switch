@@ -711,10 +711,12 @@ function getProfileScriptPath(profile) {
   return path.join(SCRIPTS_DIR, getProfileScriptFilename(profile));
 }
 
-function generateProfileScript(config, profileId) {
+function generateProfileScript(config, target) {
   ensureBaseDirs();
-  const profile = config.profiles.find((item) => item.id === profileId);
-  if (!profile) throw new Error(`Profile not found: ${profileId}`);
+  const profile = typeof target === "object" && target !== null
+    ? target
+    : (config.profiles || []).find((item) => item.id === target);
+  if (!profile) throw new Error(`Profile not found: ${typeof target === "object" ? JSON.stringify(target) : target}`);
 
   const host = profile.proxyHost || config.proxy.host || "127.0.0.1";
   const port = normalizePort(profile.proxyPort, config.proxy.port);
@@ -956,6 +958,10 @@ async function launchProfile(config, profileId) {
   const profile = config.profiles.find((item) => item.id === profileId);
   if (!profile) throw new Error(`Profile not found: ${profileId}`);
 
+  // 持久化保存该配置的运行启用状态到 config.json
+  profile.enabled = true;
+  writeConfig(config);
+
   // 如果是本地反向网关模式
   if (profile.proxyMode === "gateway") {
     const gwPort = normalizePort(profile.gatewayPort, 8787);
@@ -964,7 +970,7 @@ async function launchProfile(config, profileId) {
     const jsPath = path.join(SCRIPTS_DIR, jsName);
     fs.writeFileSync(jsPath, tokenRhythmProxyJs(), "utf8");
 
-    // 检查端口是否已经在监听，若未监听则启动 node 后台网关
+    // 检查端口是否已经在监听，若未监听则在后台启动 node 网关服务（不弹出 cmd 窗口）
     const isListening = await checkPortListening(gwPort, "127.0.0.1");
     if (!isListening) {
       const child = spawn("node", [jsPath], {
@@ -985,79 +991,41 @@ async function launchProfile(config, profileId) {
       child.unref();
     }
 
-    // 若配置了启动命令，则伴随启动目标软件
-    if (profile.command) {
-      const env = { ...process.env, NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1" };
-      const appChild = spawn(resolveCommand(profile.command), splitArgs(profile.args), {
-        cwd: profile.workingDir ? expandPath(profile.workingDir) : undefined,
-        env,
-        detached: true,
-        stdio: "ignore",
-        windowsHide: false,
-      });
-      appChild.unref();
-    }
+    // 同步生成最新 PowerShell 别名与启动脚本
+    syncPowerShellProfile(config);
+    generateProfileScript(config, profile);
     return { success: true, mode: "gateway", port: gwPort };
   }
 
-  // 普通代理或直连模式
-  if (!profile.command) throw new Error("该配置未设置执行命令或可执行文件路径。");
+  // 普通独立代理、强制直连模式：同步更新该软件的专属代理配置规则与脚本，供用户随时在任意终端直接使用
+  syncPowerShellProfile(config);
+  generateProfileScript(config, profile);
 
-  const host = profile.proxyHost || config.proxy.host || "127.0.0.1";
-  const port = normalizePort(profile.proxyPort, config.proxy.port);
-  const scheme = profile.proxyScheme || config.proxy.scheme || "http";
-  const url = `${scheme}://${host}:${port}`;
-  const env = { ...process.env };
-
-  if (profile.proxyMode === "process" || profile.proxyMode === "dedicated-proxy") {
-    const allUrl = allProxyUrl(host, port, scheme);
-    for (const name of HTTP_PROXY_ENV_NAMES) env[name] = url;
-    for (const name of ALL_PROXY_ENV_NAMES) env[name] = allUrl;
-    env.NO_PROXY = bypassValue(config);
-    env.no_proxy = bypassValue(config);
-  } else if (profile.proxyMode === "force-direct" || profile.proxyMode === "bypass-local") {
-    for (const name of PROXY_ENV_NAMES) delete env[name];
-    env.NO_PROXY = "*";
-    env.no_proxy = "*";
-  }
-
-  const child = spawn(resolveCommand(profile.command), splitArgs(profile.args), {
-    cwd: profile.workingDir ? expandPath(profile.workingDir) : undefined,
-    env,
-    detached: true,
-    stdio: "ignore",
-    windowsHide: false,
-  });
-  child.unref();
-  return { pid: child.pid, success: true };
+  return { success: true, mode: profile.proxyMode };
 }
 
-async function stopProfile(config, profileId) {
+async function stopProfile(config, profileId, terminate = true) {
   const profile = config.profiles.find((item) => item.id === profileId);
   if (!profile) throw new Error(`Profile not found: ${profileId}`);
 
-  // 1. 若为网关模式，终止监听本地网关端口的进程
-  const gwPort = profile.gatewayPort || (profile.proxyMode === "gateway" ? 8787 : null);
-  if (gwPort && process.platform === "win32") {
-    try {
-      await runPowerShell(`
-        $listeners = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort ${gwPort} -State Listen -ErrorAction SilentlyContinue
-        if ($listeners) {
-          $pids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
-          foreach ($pidToKill in $pids) {
-            if ($pidToKill -gt 0) { Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue }
-          }
-        }
-      `);
-    } catch (_e) {}
-  }
+  // 持久化保存该配置的停止状态到 config.json
+  profile.enabled = false;
+  writeConfig(config);
 
-  // 2. 若配置了命令名，尝试终止对应名称的进程
-  if (profile.command && process.platform === "win32") {
-    const procName = path.basename(profile.command).replace(/\.exe$/i, "");
-    if (procName && !["cmd", "powershell", "explorer", "svchost"].includes(procName.toLowerCase())) {
+  if (terminate) {
+    // 1. 若为网关模式，关闭占用该网关端口的后台服务
+    const gwPort = profile.gatewayPort || (profile.proxyMode === "gateway" ? 8787 : null);
+    if (gwPort && process.platform === "win32") {
       try {
-        await runPowerShell(`Stop-Process -Name "${procName}" -Force -ErrorAction SilentlyContinue`);
+        await runPowerShell(`
+          $listeners = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort ${gwPort} -State Listen -ErrorAction SilentlyContinue
+          if ($listeners) {
+            $pids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
+            foreach ($pidToKill in $pids) {
+              if ($pidToKill -gt 0) { Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue }
+            }
+          }
+        `);
       } catch (_e) {}
     }
   }
@@ -1065,7 +1033,7 @@ async function stopProfile(config, profileId) {
   return { success: true };
 }
 
-function knownFiles(config, runningProcesses = [], globalEnabled = false) {
+function knownFiles(config, listeningPorts = {}, globalEnabled = false) {
   ensureBaseDirs();
   const files = [
     {
@@ -1086,16 +1054,16 @@ function knownFiles(config, runningProcesses = [], globalEnabled = false) {
 
   for (const profile of config.profiles || []) {
     const filename = getProfileScriptFilename(profile);
-    const cmdName = profile.command ? profile.command.trim().replace(/\.exe$/i, "").toLowerCase() : "";
     const isGw = profile.proxyMode === "gateway";
     const gwPort = profile.gatewayPort || 8787;
 
-    // 判断该卡片或脚本是否正在运行
+    // 判断该配置是否处于运行中：
+    // 网关模式以端口是否在监听为准；其他模式以持久化的 profile.enabled 为准
     let isRunning = false;
     if (isGw) {
-      isRunning = runningProcesses.some((p) => p.name === "node" || p.name === "node.exe") && (global.lastGatewayPortListening === true || isGw);
-    } else if (cmdName) {
-      isRunning = runningProcesses.some((p) => p.name.toLowerCase() === cmdName);
+      isRunning = Boolean(listeningPorts[gwPort]);
+    } else {
+      isRunning = Boolean(profile.enabled);
     }
 
     files.push({
@@ -1123,7 +1091,7 @@ function knownFiles(config, runningProcesses = [], globalEnabled = false) {
   });
 }
 
-function checkPortListening(port, host = "127.0.0.1", timeoutMs = 350) {
+function checkPortListening(port, host = "127.0.0.1", timeoutMs = 250) {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     socket.setTimeout(timeoutMs);
@@ -1143,35 +1111,7 @@ function checkPortListening(port, host = "127.0.0.1", timeoutMs = 350) {
   });
 }
 
-function getRunningProcessNames() {
-  return new Promise((resolve) => {
-    if (process.platform !== "win32") {
-      resolve([]);
-      return;
-    }
-    const child = spawn("powershell.exe", [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-Command",
-      "Get-Process | Select-Object -ExpandProperty ProcessName -Unique",
-    ], { windowsHide: true });
-
-    let stdout = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.on("close", () => {
-      const names = stdout
-        .split(/\r?\n/)
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean)
-        .map((n) => ({ name: n }));
-      resolve(names);
-    });
-    child.on("error", () => resolve([]));
-  });
-}
-
-function publicState(config, envState, portStatus = null, runningProcesses = []) {
+function publicState(config, envState, portStatus = null, listeningPorts = {}) {
   const globalUrl = proxyUrl(config);
   const proxyRows = envState.filter((item) => PROXY_ENV_NAMES.includes(item.name));
   const activeUserProxy = proxyRows.find((item) => Boolean(item.user && item.user.trim()))?.user || "";
@@ -1200,7 +1140,7 @@ function publicState(config, envState, portStatus = null, runningProcesses = [])
     globalBypassEnabled,
     bypassValue: expectedBypass,
     claude: summarizeClaude(config),
-    files: knownFiles(config, runningProcesses, globalEnabled),
+    files: knownFiles(config, listeningPorts, globalEnabled),
     ports: portStatus || {
       proxyPort: config.proxy.port,
       proxyListening: false,
@@ -1213,19 +1153,21 @@ function publicState(config, envState, portStatus = null, runningProcesses = [])
 async function getState() {
   const config = readConfig();
   const envState = await getEnvironmentState();
-  const [proxyListening, claudeListening, runningProcesses] = await Promise.all([
+  const [proxyListening, claudeListening] = await Promise.all([
     checkPortListening(config.proxy.port, config.proxy.host || "127.0.0.1"),
     checkPortListening(config.claude.localProxyPort || 8787, "127.0.0.1"),
-    getRunningProcessNames(),
   ]);
-  global.lastGatewayPortListening = claudeListening;
+  const listeningPorts = {
+    [config.proxy.port]: proxyListening,
+    [config.claude.localProxyPort || 8787]: claudeListening,
+  };
   const portStatus = {
     proxyPort: config.proxy.port,
     proxyListening,
     claudePort: config.claude.localProxyPort || 8787,
     claudeListening,
   };
-  return publicState(config, envState, portStatus, runningProcesses);
+  return publicState(config, envState, portStatus, listeningPorts);
 }
 
 function sendJson(res, status, payload) {
@@ -1396,7 +1338,8 @@ async function handleApi(req, res, url) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/stop-profile") {
-      const result = await stopProfile(readConfig(), body.profileId);
+      const terminate = body.terminate !== false;
+      const result = await stopProfile(readConfig(), body.profileId, terminate);
       sendJson(res, 200, { ok: true, result, state: await getState() });
       return;
     }
