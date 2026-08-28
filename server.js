@@ -24,8 +24,23 @@ const PROXY_ENV_NAMES = [
   "https_proxy",
   "all_proxy",
 ];
+/** Env names that accept http:// scheme */
+const HTTP_PROXY_ENV_NAMES = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"];
+/** Env names that require socks5:// scheme for Go/agy compatibility */
+const ALL_PROXY_ENV_NAMES = ["ALL_PROXY", "all_proxy"];
 const BYPASS_ENV_NAMES = ["NO_PROXY", "no_proxy"];
 const ALL_ENV_NAMES = [...PROXY_ENV_NAMES, ...BYPASS_ENV_NAMES];
+
+/**
+ * Build the ALL_PROXY URL.  Go's net/http only honours ALL_PROXY when the
+ * scheme is socks5, so when the user-configured scheme is "http" we
+ * automatically switch to "socks5" (Clash / V2Ray / mihomo expose both
+ * protocols on the same mixed port).
+ */
+function allProxyUrl(host, port, scheme) {
+  const allScheme = scheme === "http" ? "socks5" : scheme;
+  return `${allScheme}://${host}:${port}`;
+}
 
 function defaultConfig() {
   return {
@@ -257,16 +272,21 @@ async function getEnvironmentState() {
 async function setGlobalProxy(config, enabled, portOverride) {
   if (process.platform !== "win32") throw new Error("Global proxy editing is only implemented for Windows.");
   const url = proxyUrl(config, portOverride);
+  const host = config.proxy.host || "127.0.0.1";
+  const port = normalizePort(portOverride || config.proxy.port, config.proxy.port);
+  const scheme = config.proxy.scheme || "http";
+  const allUrl = allProxyUrl(host, port, scheme);
 
-  for (const name of PROXY_ENV_NAMES) {
+  // Helper to set or delete a single env name in the registry + current process
+  const applyEnv = (name, value) => {
     if (enabled) {
       try {
         require("node:child_process").execSync(
-          `reg add HKCU\\Environment /v ${name} /t REG_SZ /d "${url}" /f`,
+          `reg add HKCU\\Environment /v ${name} /t REG_SZ /d "${value}" /f`,
           { stdio: ["ignore", "ignore", "ignore"], windowsHide: true }
         );
       } catch (_e) {}
-      process.env[name] = url;
+      process.env[name] = value;
     } else {
       try {
         require("node:child_process").execSync(
@@ -276,7 +296,10 @@ async function setGlobalProxy(config, enabled, portOverride) {
       } catch (_e) {}
       delete process.env[name];
     }
-  }
+  };
+
+  for (const name of HTTP_PROXY_ENV_NAMES) applyEnv(name, url);
+  for (const name of ALL_PROXY_ENV_NAMES) applyEnv(name, allUrl);
 
   // Broadcast WM_SETTINGCHANGE asynchronously without blocking response
   runPowerShell(`
@@ -580,27 +603,38 @@ function generateAgyToggleFiles(config) {
   ensureBaseDirs();
   const dir = SCRIPTS_DIR;
   const url = proxyUrl(config);
+  const host = config.proxy.host || "127.0.0.1";
+  const port = normalizePort(config.proxy.port, 7890);
+  const scheme = config.proxy.scheme || "http";
+  const allUrl = allProxyUrl(host, port, scheme);
   const ps1Path = path.join(dir, "Toggle-Global-Proxy.ps1");
   const cmdPath = path.join(dir, "Toggle-Global-Proxy.cmd");
 
   const ps1 = `$ErrorActionPreference = 'Stop'
 
-$proxy = '${url}'
-$names = @('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy')
+$httpProxy = '${url}'
+$allProxy  = '${allUrl}'
+$httpNames = @('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy')
+$allNames  = @('ALL_PROXY', 'all_proxy')
+$allEnvNames = $httpNames + $allNames
 
 function Get-UserEnvValue([string]$name) {
     [Environment]::GetEnvironmentVariable($name, 'User')
 }
 
 function Set-UserProxy {
-    foreach ($name in $names) {
-        [Environment]::SetEnvironmentVariable($name, $proxy, 'User')
-        Set-Item -Path "Env:$name" -Value $proxy
+    foreach ($name in $httpNames) {
+        [Environment]::SetEnvironmentVariable($name, $httpProxy, 'User')
+        Set-Item -Path "Env:$name" -Value $httpProxy
+    }
+    foreach ($name in $allNames) {
+        [Environment]::SetEnvironmentVariable($name, $allProxy, 'User')
+        Set-Item -Path "Env:$name" -Value $allProxy
     }
 }
 
 function Clear-UserProxy {
-    foreach ($name in $names) {
+    foreach ($name in $allEnvNames) {
         [Environment]::SetEnvironmentVariable($name, $null, 'User')
         if (Test-Path "Env:$name") {
             Remove-Item -Path "Env:$name"
@@ -609,13 +643,13 @@ function Clear-UserProxy {
 }
 
 $current = @{}
-foreach ($name in $names) {
+foreach ($name in $httpNames) {
     $current[$name] = Get-UserEnvValue $name
 }
 
 $enabled = $true
-foreach ($name in $names) {
-    if ($current[$name] -ne $proxy) {
+foreach ($name in $httpNames) {
+    if ($current[$name] -ne $httpProxy) {
         $enabled = $false
         break
     }
@@ -628,8 +662,11 @@ if ($enabled) {
 } else {
     Set-UserProxy
     Write-Host 'Global proxy is now ON:' -ForegroundColor Green
-    foreach ($name in $names) {
-        Write-Host "  $name=$proxy"
+    foreach ($name in $httpNames) {
+        Write-Host "  $name=$httpProxy"
+    }
+    foreach ($name in $allNames) {
+        Write-Host "  $name=$allProxy"
     }
 }
 
@@ -651,12 +688,27 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Toggle-Global-Prox
   return [ps1Path, cmdPath];
 }
 
+function sanitizeScriptName(name) {
+  if (!name) return "";
+  // 仅允许字母、数字、点、下划线、短横线，去掉其他非法字符和 .cmd 扩展名后缀
+  const clean = String(name).trim().replace(/\.cmd$/i, "").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return clean;
+}
+
 function safeFilePart(value) {
-  return String(value || "profile").replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "profile";
+  return sanitizeScriptName(value) || "profile";
+}
+
+function getProfileScriptFilename(profile) {
+  const custom = sanitizeScriptName(profile.scriptName);
+  if (custom) {
+    return `${custom}.cmd`;
+  }
+  return `${safeFilePart(profile.id || profile.name)}-starter.cmd`;
 }
 
 function getProfileScriptPath(profile) {
-  return path.join(SCRIPTS_DIR, `${safeFilePart(profile.id || profile.name)}-starter.cmd`);
+  return path.join(SCRIPTS_DIR, getProfileScriptFilename(profile));
 }
 
 function generateProfileScript(config, profileId) {
@@ -668,26 +720,62 @@ function generateProfileScript(config, profileId) {
   const port = normalizePort(profile.proxyPort, config.proxy.port);
   const scheme = profile.proxyScheme || config.proxy.scheme || "http";
   const url = `${scheme}://${host}:${port}`;
-  const filePath = path.join(SCRIPTS_DIR, `${safeFilePart(profile.id || profile.name)}-starter.cmd`);
+  const filePath = getProfileScriptPath(profile);
   const lines = ["@echo off"];
 
-  if (profile.proxyMode === "process" || profile.proxyMode === "dedicated-proxy") {
-    for (const name of PROXY_ENV_NAMES) lines.push(`set "${name}=${url}"`);
+  if (profile.proxyMode === "gateway") {
+    const gwPort = normalizePort(profile.gatewayPort, 8787);
+    const upstream = profile.upstreamUrl || "https://tokenrhythm.studio";
+    const jsName = `${safeFilePart(profile.id || profile.name)}-proxy.js`;
+    const jsPath = path.join(SCRIPTS_DIR, jsName);
+    fs.writeFileSync(jsPath, tokenRhythmProxyJs(), "utf8");
+
+    lines.push(`set "TOKENRHYTHM_PROXY_PORT=${gwPort}"`);
+    lines.push(`set "TOKENRHYTHM_UPSTREAM=${upstream}"`);
+    lines.push(`set "HTTP_PROXY="`);
+    lines.push(`set "HTTPS_PROXY="`);
+    lines.push(`set "ALL_PROXY="`);
+    lines.push(`set "http_proxy="`);
+    lines.push(`set "https_proxy="`);
+    lines.push(`set "all_proxy="`);
+    lines.push(`set "NO_PROXY=localhost,127.0.0.1,::1"`);
+    lines.push(`set "no_proxy=localhost,127.0.0.1,::1"`);
+    lines.push(`powershell -NoProfile -ExecutionPolicy Bypass -Command "$port = ${gwPort}; if (-not (Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $port -State Listen -ErrorAction SilentlyContinue)) { Start-Process -FilePath 'node' -ArgumentList @('%~dp0${jsName}') -WindowStyle Hidden; Start-Sleep -Milliseconds 600 }"`);
+    if (profile.command) {
+      if (profile.workingDir) lines.push(`cd /d "${expandPath(profile.workingDir)}"`);
+      lines.push(`"${resolveCommand(profile.command)}" ${profile.args || ""}`.trimEnd());
+    }
+  } else if (profile.proxyMode === "process" || profile.proxyMode === "dedicated-proxy") {
+    const allUrl = allProxyUrl(host, port, scheme);
+    for (const name of HTTP_PROXY_ENV_NAMES) lines.push(`set "${name}=${url}"`);
+    for (const name of ALL_PROXY_ENV_NAMES) lines.push(`set "${name}=${allUrl}"`);
     lines.push(`set "NO_PROXY=${bypassValue(config)}"`);
     lines.push(`set "no_proxy=${bypassValue(config)}"`);
+    if (profile.workingDir) lines.push(`cd /d "${expandPath(profile.workingDir)}"`);
+    if (!profile.command) {
+      lines.push("echo [ScopeSwitch] This profile has no command set. Edit it in ScopeSwitch first.");
+      lines.push("pause");
+      lines.push("exit /b 1");
+    } else {
+      lines.push(`start "" "${resolveCommand(profile.command)}" ${profile.args || ""}`.trimEnd());
+    }
   } else if (profile.proxyMode === "force-direct" || profile.proxyMode === "bypass-local") {
     for (const name of PROXY_ENV_NAMES) lines.push(`set "${name}="`);
     lines.push(`set "NO_PROXY=*"`);
     lines.push(`set "no_proxy=*"`);
-  }
-
-  if (profile.workingDir) lines.push(`cd /d "${expandPath(profile.workingDir)}"`);
-  if (!profile.command) {
-    lines.push("echo [ScopeSwitch] This profile has no command set. Edit it in ScopeSwitch first.");
-    lines.push("pause");
-    lines.push("exit /b 1");
+    if (profile.workingDir) lines.push(`cd /d "${expandPath(profile.workingDir)}"`);
+    if (!profile.command) {
+      lines.push("echo [ScopeSwitch] This profile has no command set. Edit it in ScopeSwitch first.");
+      lines.push("pause");
+      lines.push("exit /b 1");
+    } else {
+      lines.push(`start "" "${resolveCommand(profile.command)}" ${profile.args || ""}`.trimEnd());
+    }
   } else {
-    lines.push(`start "" "${resolveCommand(profile.command)}" ${profile.args || ""}`.trimEnd());
+    if (profile.workingDir) lines.push(`cd /d "${expandPath(profile.workingDir)}"`);
+    if (profile.command) {
+      lines.push(`start "" "${resolveCommand(profile.command)}" ${profile.args || ""}`.trimEnd());
+    }
   }
   lines.push("");
 
@@ -699,15 +787,158 @@ function generateProfileScript(config, profileId) {
 function ensureBaseScripts(config) {
   try {
     ensureBaseDirs();
-    generateClaudeGatewayFiles(config);
     generateAgyToggleFiles(config);
     for (const profile of config.profiles || []) {
       try {
         generateProfileScript(config, profile.id);
       } catch (_e) {}
     }
+    syncPowerShellProfile(config);
   } catch (err) {
     console.error("Failed to initialize base scripts:", err);
+  }
+}
+
+// ---------- PowerShell Profile auto-sync ----------
+// Marker comments used to fence the managed block inside $PROFILE
+const PS_PROFILE_BEGIN = "# >>> ScopeSwitch managed proxy wrappers >>>";
+const PS_PROFILE_END   = "# <<< ScopeSwitch managed proxy wrappers <<<";
+
+/**
+ * Read all profiles whose proxyMode is "process" or "dedicated-proxy" and
+ * generate a PowerShell wrapper function for each one so that typing the
+ * command name in ANY PowerShell terminal (including IDEA / VS Code built-in
+ * terminals) will automatically inject the correct proxy env vars.
+ *
+ * The wrapper function:
+ *  1. Sets HTTP_PROXY / HTTPS_PROXY (http://) and ALL_PROXY (socks5://)
+ *  2. Runs the real executable, forwarding all arguments
+ *  3. Cleans up the env vars on exit (try/finally)
+ *
+ * Only the fenced block between the marker comments is touched; any content
+ * the user has added to their $PROFILE is preserved.
+ */
+function syncPowerShellProfile(config) {
+  if (process.platform !== "win32") return;
+
+  const profilePath = path.join(
+    process.env.USERPROFILE || os.homedir(),
+    "Documents",
+    "WindowsPowerShell",
+    "Microsoft.PowerShell_profile.ps1"
+  );
+
+  // Collect profiles that need terminal wrappers (process or gateway)
+  const activeProfiles = (config.profiles || []).filter(
+    (p) => (p.proxyMode === "process" || p.proxyMode === "dedicated-proxy" || p.proxyMode === "gateway") && p.command
+  );
+
+  // Build the managed block
+  const blocks = activeProfiles.map((profile) => {
+    const cmd = profile.command.trim();
+    const fnName = cmd.replace(/\.exe$/i, "").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const exeName = cmd.includes(".") ? cmd : `${cmd}.exe`;
+
+    if (profile.proxyMode === "gateway") {
+      const gwPort = normalizePort(profile.gatewayPort, 8787);
+      const jsName = `${safeFilePart(profile.id || profile.name)}-proxy.js`;
+      const jsPath = path.join(SCRIPTS_DIR, jsName);
+      return `
+# Wrapper for "${profile.name || fnName}" (Local Gateway Mode)
+function ${fnName} {
+    # Ensure gateway is running on port ${gwPort}
+    if (-not (Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort ${gwPort} -State Listen -ErrorAction SilentlyContinue)) {
+        Start-Process -FilePath 'node' -ArgumentList @('${jsPath.replace(/\\/g, "\\\\")}') -WindowStyle Hidden
+        Start-Sleep -Milliseconds 600
+    }
+    # Ensure local 127.0.0.1 requests do not go through Clash/V2Ray
+    $env:NO_PROXY = "localhost,127.0.0.1,::1"
+    $env:no_proxy = "localhost,127.0.0.1,::1"
+    $env:HTTP_PROXY = ""
+    $env:HTTPS_PROXY = ""
+    $env:ALL_PROXY = ""
+    $env:http_proxy = ""
+    $env:https_proxy = ""
+    $env:all_proxy = ""
+    try {
+        & (Get-Command ${exeName} -CommandType Application).Source @args
+    }
+    finally {
+        Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue
+        Remove-Item Env:HTTPS_PROXY -ErrorAction SilentlyContinue
+        Remove-Item Env:ALL_PROXY -ErrorAction SilentlyContinue
+        Remove-Item Env:http_proxy -ErrorAction SilentlyContinue
+        Remove-Item Env:https_proxy -ErrorAction SilentlyContinue
+        Remove-Item Env:all_proxy -ErrorAction SilentlyContinue
+    }
+}`;
+    }
+
+    const host   = profile.proxyHost || config.proxy.host || "127.0.0.1";
+    const port   = normalizePort(profile.proxyPort, config.proxy.port);
+    const scheme = profile.proxyScheme || config.proxy.scheme || "http";
+    const httpUrl = `${scheme}://${host}:${port}`;
+    const allUrl  = allProxyUrl(host, port, scheme);
+    const bypass  = bypassValue(config);
+
+    return `
+# Wrapper for "${profile.name || fnName}" — auto-injects proxy env vars
+function ${fnName} {
+    $env:HTTP_PROXY  = "${httpUrl}"
+    $env:HTTPS_PROXY = "${httpUrl}"
+    $env:http_proxy  = "${httpUrl}"
+    $env:https_proxy = "${httpUrl}"
+    $env:ALL_PROXY   = "${allUrl}"
+    $env:all_proxy   = "${allUrl}"
+    $env:NO_PROXY    = "${bypass}"
+    $env:no_proxy    = "${bypass}"
+    try {
+        & (Get-Command ${exeName} -CommandType Application).Source @args
+    }
+    finally {
+        Remove-Item Env:HTTP_PROXY  -ErrorAction SilentlyContinue
+        Remove-Item Env:HTTPS_PROXY -ErrorAction SilentlyContinue
+        Remove-Item Env:http_proxy  -ErrorAction SilentlyContinue
+        Remove-Item Env:https_proxy -ErrorAction SilentlyContinue
+        Remove-Item Env:ALL_PROXY   -ErrorAction SilentlyContinue
+        Remove-Item Env:all_proxy   -ErrorAction SilentlyContinue
+        Remove-Item Env:NO_PROXY    -ErrorAction SilentlyContinue
+        Remove-Item Env:no_proxy    -ErrorAction SilentlyContinue
+    }
+}`;
+  });
+
+  const managedBlock = [
+    PS_PROFILE_BEGIN,
+    ...blocks,
+    PS_PROFILE_END,
+  ].join("\n");
+
+  // Read existing profile (or empty string)
+  let existing = "";
+  try {
+    fs.mkdirSync(path.dirname(profilePath), { recursive: true });
+    if (fs.existsSync(profilePath)) {
+      existing = fs.readFileSync(profilePath, "utf8");
+    }
+  } catch (_e) {}
+
+  // Replace or append the managed block
+  const beginIdx = existing.indexOf(PS_PROFILE_BEGIN);
+  const endIdx   = existing.indexOf(PS_PROFILE_END);
+  let updated;
+  if (beginIdx !== -1 && endIdx !== -1) {
+    // Replace existing managed block
+    updated = existing.slice(0, beginIdx) + managedBlock + existing.slice(endIdx + PS_PROFILE_END.length);
+  } else {
+    // Append
+    updated = existing.trimEnd() + "\n\n" + managedBlock + "\n";
+  }
+
+  try {
+    fs.writeFileSync(profilePath, updated, "utf8");
+  } catch (err) {
+    console.error("Failed to sync PowerShell profile:", err.message);
   }
 }
 
@@ -721,10 +952,56 @@ function splitArgs(input) {
   return args;
 }
 
-function launchProfile(config, profileId) {
+async function launchProfile(config, profileId) {
   const profile = config.profiles.find((item) => item.id === profileId);
   if (!profile) throw new Error(`Profile not found: ${profileId}`);
-  if (!profile.command) throw new Error("This profile has no command configured yet. Please fill in the executable or CLI command.");
+
+  // 如果是本地反向网关模式
+  if (profile.proxyMode === "gateway") {
+    const gwPort = normalizePort(profile.gatewayPort, 8787);
+    const upstream = profile.upstreamUrl || "https://tokenrhythm.studio";
+    const jsName = `${safeFilePart(profile.id || profile.name)}-proxy.js`;
+    const jsPath = path.join(SCRIPTS_DIR, jsName);
+    fs.writeFileSync(jsPath, tokenRhythmProxyJs(), "utf8");
+
+    // 检查端口是否已经在监听，若未监听则启动 node 后台网关
+    const isListening = await checkPortListening(gwPort, "127.0.0.1");
+    if (!isListening) {
+      const child = spawn("node", [jsPath], {
+        cwd: SCRIPTS_DIR,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+        env: {
+          ...process.env,
+          TOKENRHYTHM_PROXY_PORT: String(gwPort),
+          TOKENRHYTHM_UPSTREAM: upstream,
+          HTTP_PROXY: "",
+          HTTPS_PROXY: "",
+          ALL_PROXY: "",
+          NO_PROXY: "localhost,127.0.0.1,::1",
+        },
+      });
+      child.unref();
+    }
+
+    // 若配置了启动命令，则伴随启动目标软件
+    if (profile.command) {
+      const env = { ...process.env, NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1" };
+      const appChild = spawn(resolveCommand(profile.command), splitArgs(profile.args), {
+        cwd: profile.workingDir ? expandPath(profile.workingDir) : undefined,
+        env,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: false,
+      });
+      appChild.unref();
+    }
+    return { success: true, mode: "gateway", port: gwPort };
+  }
+
+  // 普通代理或直连模式
+  if (!profile.command) throw new Error("该配置未设置执行命令或可执行文件路径。");
 
   const host = profile.proxyHost || config.proxy.host || "127.0.0.1";
   const port = normalizePort(profile.proxyPort, config.proxy.port);
@@ -733,7 +1010,9 @@ function launchProfile(config, profileId) {
   const env = { ...process.env };
 
   if (profile.proxyMode === "process" || profile.proxyMode === "dedicated-proxy") {
-    for (const name of PROXY_ENV_NAMES) env[name] = url;
+    const allUrl = allProxyUrl(host, port, scheme);
+    for (const name of HTTP_PROXY_ENV_NAMES) env[name] = url;
+    for (const name of ALL_PROXY_ENV_NAMES) env[name] = allUrl;
     env.NO_PROXY = bypassValue(config);
     env.no_proxy = bypassValue(config);
   } else if (profile.proxyMode === "force-direct" || profile.proxyMode === "bypass-local") {
@@ -750,26 +1029,81 @@ function launchProfile(config, profileId) {
     windowsHide: false,
   });
   child.unref();
-  return { pid: child.pid };
+  return { pid: child.pid, success: true };
 }
 
-function knownFiles(config) {
+async function stopProfile(config, profileId) {
+  const profile = config.profiles.find((item) => item.id === profileId);
+  if (!profile) throw new Error(`Profile not found: ${profileId}`);
+
+  // 1. 若为网关模式，终止监听本地网关端口的进程
+  const gwPort = profile.gatewayPort || (profile.proxyMode === "gateway" ? 8787 : null);
+  if (gwPort && process.platform === "win32") {
+    try {
+      await runPowerShell(`
+        $listeners = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort ${gwPort} -State Listen -ErrorAction SilentlyContinue
+        if ($listeners) {
+          $pids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
+          foreach ($pidToKill in $pids) {
+            if ($pidToKill -gt 0) { Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue }
+          }
+        }
+      `);
+    } catch (_e) {}
+  }
+
+  // 2. 若配置了命令名，尝试终止对应名称的进程
+  if (profile.command && process.platform === "win32") {
+    const procName = path.basename(profile.command).replace(/\.exe$/i, "");
+    if (procName && !["cmd", "powershell", "explorer", "svchost"].includes(procName.toLowerCase())) {
+      try {
+        await runPowerShell(`Stop-Process -Name "${procName}" -Force -ErrorAction SilentlyContinue`);
+      } catch (_e) {}
+    }
+  }
+
+  return { success: true };
+}
+
+function knownFiles(config, runningProcesses = [], globalEnabled = false) {
   ensureBaseDirs();
   const files = [
-    { key: "globalCmd", name: "Toggle-Global-Proxy.cmd", path: path.join(SCRIPTS_DIR, "Toggle-Global-Proxy.cmd"), desc: "Windows 全局代理切换快捷脚本" },
-    { key: "globalPs1", name: "Toggle-Global-Proxy.ps1", path: path.join(SCRIPTS_DIR, "Toggle-Global-Proxy.ps1"), desc: "PowerShell 全局切换脚本" },
-    { key: "claudeCmd", name: "switch-tokenrhythm-proxy.cmd", path: path.join(SCRIPTS_DIR, "switch-tokenrhythm-proxy.cmd"), desc: "TokenRhythm 本地网关启动/停止命令" },
-    { key: "claudePs1", name: "switch-tokenrhythm-proxy.ps1", path: path.join(SCRIPTS_DIR, "switch-tokenrhythm-proxy.ps1"), desc: "TokenRhythm 网关控制脚本" },
-    { key: "tokenProxyJs", name: "tokenrhythm-proxy.js", path: path.join(SCRIPTS_DIR, "tokenrhythm-proxy.js"), desc: "TokenRhythm 转换代理核心服务" },
+    {
+      key: "globalCmd",
+      name: "Toggle-Global-Proxy.cmd",
+      path: path.join(SCRIPTS_DIR, "Toggle-Global-Proxy.cmd"),
+      desc: "Windows 全局代理切换快捷脚本",
+      running: Boolean(globalEnabled),
+    },
+    {
+      key: "globalPs1",
+      name: "Toggle-Global-Proxy.ps1",
+      path: path.join(SCRIPTS_DIR, "Toggle-Global-Proxy.ps1"),
+      desc: "PowerShell 全局切换脚本",
+      running: Boolean(globalEnabled),
+    },
   ];
 
   for (const profile of config.profiles || []) {
-    const filename = `${safeFilePart(profile.id || profile.name)}-starter.cmd`;
+    const filename = getProfileScriptFilename(profile);
+    const cmdName = profile.command ? profile.command.trim().replace(/\.exe$/i, "").toLowerCase() : "";
+    const isGw = profile.proxyMode === "gateway";
+    const gwPort = profile.gatewayPort || 8787;
+
+    // 判断该卡片或脚本是否正在运行
+    let isRunning = false;
+    if (isGw) {
+      isRunning = runningProcesses.some((p) => p.name === "node" || p.name === "node.exe") && (global.lastGatewayPortListening === true || isGw);
+    } else if (cmdName) {
+      isRunning = runningProcesses.some((p) => p.name.toLowerCase() === cmdName);
+    }
+
     files.push({
       key: `profile_${profile.id}`,
       name: filename,
       path: path.join(SCRIPTS_DIR, filename),
       desc: `${profile.name} 专属启动脚本`,
+      running: isRunning,
     });
   }
 
@@ -809,7 +1143,35 @@ function checkPortListening(port, host = "127.0.0.1", timeoutMs = 350) {
   });
 }
 
-function publicState(config, envState, portStatus = null) {
+function getRunningProcessNames() {
+  return new Promise((resolve) => {
+    if (process.platform !== "win32") {
+      resolve([]);
+      return;
+    }
+    const child = spawn("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      "Get-Process | Select-Object -ExpandProperty ProcessName -Unique",
+    ], { windowsHide: true });
+
+    let stdout = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.on("close", () => {
+      const names = stdout
+        .split(/\r?\n/)
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean)
+        .map((n) => ({ name: n }));
+      resolve(names);
+    });
+    child.on("error", () => resolve([]));
+  });
+}
+
+function publicState(config, envState, portStatus = null, runningProcesses = []) {
   const globalUrl = proxyUrl(config);
   const proxyRows = envState.filter((item) => PROXY_ENV_NAMES.includes(item.name));
   const activeUserProxy = proxyRows.find((item) => Boolean(item.user && item.user.trim()))?.user || "";
@@ -838,7 +1200,7 @@ function publicState(config, envState, portStatus = null) {
     globalBypassEnabled,
     bypassValue: expectedBypass,
     claude: summarizeClaude(config),
-    files: knownFiles(config),
+    files: knownFiles(config, runningProcesses, globalEnabled),
     ports: portStatus || {
       proxyPort: config.proxy.port,
       proxyListening: false,
@@ -851,17 +1213,19 @@ function publicState(config, envState, portStatus = null) {
 async function getState() {
   const config = readConfig();
   const envState = await getEnvironmentState();
-  const [proxyListening, claudeListening] = await Promise.all([
+  const [proxyListening, claudeListening, runningProcesses] = await Promise.all([
     checkPortListening(config.proxy.port, config.proxy.host || "127.0.0.1"),
     checkPortListening(config.claude.localProxyPort || 8787, "127.0.0.1"),
+    getRunningProcessNames(),
   ]);
+  global.lastGatewayPortListening = claudeListening;
   const portStatus = {
     proxyPort: config.proxy.port,
     proxyListening,
     claudePort: config.claude.localProxyPort || 8787,
     claudeListening,
   };
-  return publicState(config, envState, portStatus);
+  return publicState(config, envState, portStatus, runningProcesses);
 }
 
 function sendJson(res, status, payload) {
@@ -969,6 +1333,7 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && url.pathname === "/api/config") {
       const current = readConfig();
       const next = writeConfig(mergeDefaults(body, current));
+      syncPowerShellProfile(next);
       sendJson(res, 200, { ok: true, state: publicState(next, await getEnvironmentState()) });
       return;
     }
@@ -1025,8 +1390,14 @@ async function handleApi(req, res, url) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/launch-profile") {
-      const result = launchProfile(readConfig(), body.profileId);
-      sendJson(res, 200, { ok: true, result });
+      const result = await launchProfile(readConfig(), body.profileId);
+      sendJson(res, 200, { ok: true, result, state: await getState() });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/stop-profile") {
+      const result = await stopProfile(readConfig(), body.profileId);
+      sendJson(res, 200, { ok: true, result, state: await getState() });
       return;
     }
 
@@ -1047,6 +1418,7 @@ async function handleApi(req, res, url) {
         const profileId = key.replace("profile_", "");
         config.profiles = (config.profiles || []).filter((p) => p.id !== profileId);
         writeConfig(config);
+        syncPowerShellProfile(config);
       }
       sendJson(res, 200, { ok: true, state: await getState() });
       return;
@@ -1055,16 +1427,43 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && url.pathname === "/api/delete-profile") {
       const config = readConfig();
       const profileId = body.profileId;
+      const revertChanges = body.revertChanges === true;
       const targetProfile = (config.profiles || []).find((p) => p.id === profileId);
+
       if (targetProfile) {
+        // 若用户选择“恢复原本样子”，停止该 profile 关联在本地端口运行的后台网关服务
+        if (revertChanges) {
+          const gwPort = targetProfile.gatewayPort || (targetProfile.proxyMode === "gateway" ? 8787 : null);
+          if (gwPort && process.platform === "win32") {
+            try {
+              runPowerShell(`
+                $listeners = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort ${gwPort} -State Listen -ErrorAction SilentlyContinue
+                if ($listeners) {
+                  $pids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
+                  foreach ($pidToKill in $pids) {
+                    if ($pidToKill -gt 0) { Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue }
+                  }
+                }
+              `).catch(() => {});
+            } catch (_e) {}
+          }
+        }
+
         const scriptPath = getProfileScriptPath(targetProfile);
         if (fs.existsSync(scriptPath)) {
           backupFile(scriptPath);
           fs.unlinkSync(scriptPath);
         }
+        const jsName = `${safeFilePart(targetProfile.id || targetProfile.name)}-proxy.js`;
+        const jsPath = path.join(SCRIPTS_DIR, jsName);
+        if (fs.existsSync(jsPath)) {
+          backupFile(jsPath);
+          fs.unlinkSync(jsPath);
+        }
       }
       config.profiles = (config.profiles || []).filter((p) => p.id !== profileId);
       writeConfig(config);
+      syncPowerShellProfile(config);
       sendJson(res, 200, { ok: true, state: await getState() });
       return;
     }

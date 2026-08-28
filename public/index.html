@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ScopeSwitch Proxy Console</title>
-    <link rel="stylesheet" href="/styles.css?v=3" />
+    <link rel="stylesheet" href="/styles.css?v=5" />
   </head>
   <body>
     <header class="topbar">
@@ -42,19 +42,14 @@
               <button class="filter-tab active" data-filter="all" type="button">全部组件</button>
               <button class="filter-tab" data-filter="proxy" type="button">🚀 走代理</button>
               <button class="filter-tab" data-filter="direct" type="button">⚡ 走本地直连</button>
-              <button class="filter-tab" data-filter="gateway" type="button">🔄 本地网关</button>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
-              <button data-action="add-profile-proxy" class="button primary" type="button">+ 新增走代理卡片</button>
-              <button data-action="add-profile-direct" class="button secondary" type="button">+ 新增直连卡片</button>
+              <button data-action="add-profile" class="button primary" type="button">+ 新增应用配置卡片</button>
               <button data-action="open-proxy-settings" class="button ghost" type="button">⚙️ 代理端口设置</button>
-              <button data-action="open-claude-settings" class="button ghost" type="button">🤖 Claude API 设置</button>
-              <button data-action="add-preset-codex" class="button ghost" type="button">+ Codex</button>
-              <button data-action="add-preset-cursor" class="button ghost" type="button">+ Cursor</button>
             </div>
           </div>
         </div>
-        <div class="status-summary-grid">
+        <div class="status-summary-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
           <div class="summary-card" id="summaryGlobalCard">
             <div class="summary-icon">🌐</div>
             <div class="summary-content">
@@ -73,16 +68,6 @@
               <span class="summary-desc" id="summaryProxyPortDesc">Clash / v2ray / 本地客户端</span>
             </div>
             <span class="status-badge" id="summaryProxyPortBadge">检测中</span>
-          </div>
-
-          <div class="summary-card" id="summaryClaudeGatewayCard">
-            <div class="summary-icon">🤖</div>
-            <div class="summary-content">
-              <span class="summary-label">Claude TokenRhythm 网关 (<span id="claudePortNum">8787</span>)</span>
-              <strong class="summary-value" id="summaryClaudePortVal">检测中...</strong>
-              <span class="summary-desc" id="summaryClaudePortDesc">转接 TokenRhythm Upstream</span>
-            </div>
-            <span class="status-badge" id="summaryClaudePortBadge">检测中</span>
           </div>
         </div>
 
@@ -128,6 +113,6 @@
     </aside>
 
     <div id="toast" class="toast" role="status"></div>
-    <script src="/app.js?v=4"></script>
+    <script src="/app.js?v=7"></script>
   </body>
 </html>

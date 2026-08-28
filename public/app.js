@@ -23,6 +23,17 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
+function renderIconHtml(icon) {
+  const str = String(icon || "📦").trim();
+  if (str.endsWith(".svg") || str.startsWith("/") || str.startsWith("http")) {
+    return `<img src="${escapeHtml(str)}" alt="icon" style="width:22px;height:22px;vertical-align:middle;object-fit:contain;" />`;
+  }
+  if (str.startsWith("<svg")) {
+    return str;
+  }
+  return `<span style="font-size:20px;line-height:1;">${escapeHtml(str)}</span>`;
+}
+
 function toast(message, isError = false) {
   const node = $("#toast");
   if (!node) return;
@@ -211,27 +222,6 @@ function renderSummaryCards() {
       pBadge.className = "status-badge warn";
     }
   }
-
-  // Claude TokenRhythm Port Listener Card
-  const cPort = $("#claudePortNum");
-  const cVal = $("#summaryClaudePortVal");
-  const cDesc = $("#summaryClaudePortDesc");
-  const cBadge = $("#summaryClaudePortBadge");
-  const claudeLocalPort = config.claude?.localProxyPort || 8787;
-  if (cPort) cPort.textContent = claudeLocalPort;
-  if (cVal && cDesc && cBadge) {
-    if (ports.claudeListening) {
-      cVal.textContent = `127.0.0.1:${claudeLocalPort} 运行中`;
-      cDesc.textContent = `上游: ${escapeHtml(config.claude?.upstream || "")}`;
-      cBadge.textContent = "网关在线";
-      cBadge.className = "status-badge ok";
-    } else {
-      cVal.textContent = `127.0.0.1:${claudeLocalPort} 未运行`;
-      cDesc.textContent = "可双击 switch-tokenrhythm-proxy.cmd 启动";
-      cBadge.textContent = "未启动";
-      cBadge.className = "status-badge info";
-    }
-  }
 }
 
 function renderRoutingMatrix() {
@@ -265,47 +255,25 @@ function renderRoutingMatrix() {
     `,
   });
 
-  // 2. Claude Code CLI
-  const claudeBypass = Boolean(state.claude?.localBypassEnabled);
-  items.push({
-    id: "claude-code",
-    title: "Claude Code (CLI / settings)",
-    icon: "🤖",
-    category: "gateway",
-    routeType: "gateway",
-    routeLabel: "🔄 本地网关 ➔ TokenRhythm",
-    details: [
-      { key: "隔离模式", val: "📁 应用专属配置文件隔离 (settings.json)" },
-      { key: "本地 Base URL", val: state.claude?.baseUrl || `http://127.0.0.1:${state.config?.claude?.localProxyPort || 8787}` },
-      { key: "应用专属 NO_PROXY", val: claudeBypass ? "⚡ 专属文件已绕过 (零污染隔离)" : "⚠️ 专属未设置 (若全局已绕过也能连通)" },
-      { key: "目标上游服务", val: state.config?.claude?.upstream || "https://tokenrhythm.studio" },
-      { key: "当前模型配置", val: state.claude?.model || "默认 (未指定)" },
-    ],
-    actionsHtml: `
-      <button data-action="toggle-gateway" class="button ${(state.ports || {}).claudeListening ? "secondary" : "primary"}" type="button">
-        ${(state.ports || {}).claudeListening ? "⏹️ 停止本地网关 (8787)" : "▶️ 启动本地网关 (8787)"}
-      </button>
-      <button data-action="open-claude-settings" class="button secondary" type="button">⚙️ API 设置</button>
-      ${claudeBypass
-        ? `<button data-action="disable-claude-bypass" class="button ghost" type="button">移除专属绕过</button>`
-        : `<button data-action="enable-claude-bypass" class="button ghost" type="button">开启专属绕过</button>`
-      }
-      <button data-action="generate-claude-gateway" class="button ghost" type="button">重新生成网关脚本</button>
-    `,
-  });
-
-  // 3. 自定义受控软件 / CLI 列表 (Profiles: Agy, Codex, Cursor, etc.)
+  // 2. 自定义受控软件 / CLI 列表 (Profiles: Agy, Codex, Cursor, etc.)
   for (const profile of (state.config?.profiles || [])) {
     const isDirect = profile.proxyMode === "force-direct" || profile.proxyMode === "bypass-local";
     const isProcess = profile.proxyMode === "process" || profile.proxyMode === "dedicated-proxy";
+    const isGateway = profile.proxyMode === "gateway";
     const targetHost = profile.proxyHost || "127.0.0.1";
     const targetPort = profile.proxyPort || (state.config?.proxy?.port || 7890);
+    const gwPort = profile.gatewayPort || 8787;
+    const upstream = profile.upstreamUrl || "https://tokenrhythm.studio";
 
     let category = "direct";
     let routeType = "direct";
     let routeLabel = "⚡ 强行走本地直连";
 
-    if (isProcess) {
+    if (isGateway) {
+      category = "gateway";
+      routeType = "gateway";
+      routeLabel = `🔄 本地网关 (127.0.0.1:${gwPort} ➔ 中转站)`;
+    } else if (isProcess) {
       category = "proxy";
       routeType = "proxy";
       routeLabel = `🚀 独立指定代理 (http://${targetHost}:${targetPort})`;
@@ -319,7 +287,32 @@ function renderRoutingMatrix() {
       routeLabel = state.globalEnabled ? `🌐 跟随全局代理 (${state.proxyUrl})` : "🌐 跟随系统 (本地直连)";
     }
 
-    const icon = profile.id.includes("agy") ? "⚡" : profile.id.includes("codex") ? "🧠" : profile.id.includes("cursor") ? "🖱️" : "📦";
+    const defaultIcon = profile.id.includes("agy") ? "⚡" : profile.id.includes("claude") ? "🤖" : profile.id.includes("codex") ? "🧠" : profile.id.includes("cursor") ? "🖱️" : isGateway ? "🔄" : "📦";
+    const icon = profile.icon || defaultIcon;
+
+    const details = [
+      {
+        key: "当前路由策略",
+        val: isGateway
+          ? `🔄 开启 127.0.0.1:${gwPort} 反向网关并转接中转站`
+          : isProcess
+          ? `🚀 独立注入代理 (http://${targetHost}:${targetPort})`
+          : isDirect
+          ? "⚡ 强制走本地宽带直连 (注入 NO_PROXY=* 绕过全局)"
+          : "🌐 跟随系统环境",
+      },
+    ];
+
+    if (isGateway) {
+      details.push({ key: "本地网关地址", val: `http://127.0.0.1:${gwPort}` });
+      details.push({ key: "目标中转服务", val: upstream });
+    }
+
+    details.push({ key: "执行命令 / 路径", val: profile.command || "(未设置命令，纯网关模式)" });
+    if (profile.args) details.push({ key: "启动参数", val: profile.args });
+    if (profile.note) details.push({ key: "备注说明", val: profile.note });
+
+    const isRunning = (state.files || []).some((f) => f.key === `profile_${profile.id}` && f.running);
 
     items.push({
       id: `matrix-profile-${profile.id}`,
@@ -328,21 +321,12 @@ function renderRoutingMatrix() {
       category,
       routeType,
       routeLabel,
-      details: [
-        {
-          key: "当前路由策略",
-          val: isProcess
-            ? `🚀 独立注入代理 (http://${targetHost}:${targetPort})`
-            : isDirect
-            ? "⚡ 强制走本地宽带直连 (注入 NO_PROXY=* 绕过全局)"
-            : "🌐 跟随系统环境",
-        },
-        { key: "执行命令 / 路径", val: profile.command || "(未设置命令)" },
-        { key: "启动参数", val: profile.args || "(无)" },
-        { key: "备注说明", val: profile.note || "(无)" },
-      ],
+      details,
       actionsHtml: `
-        <button data-action="launch-profile" data-profile-id="${escapeHtml(profile.id)}" class="button primary" type="button">启动软件</button>
+        ${isRunning
+          ? `<button data-action="stop-profile" data-profile-id="${escapeHtml(profile.id)}" class="button secondary" type="button" style="color:var(--warn);border-color:var(--warn-light);" title="关闭该配置运行中的后台服务或进程">⏹️ 关闭配置</button>`
+          : `<button data-action="launch-profile" data-profile-id="${escapeHtml(profile.id)}" class="button primary" type="button" title="启动该卡片配置的环境及服务">▶️ 启动配置</button>`
+        }
         <button data-action="edit-profile" data-profile-id="${escapeHtml(profile.id)}" class="button secondary" type="button">✏️ 编辑配置</button>
         <button data-action="generate-profile" data-profile-id="${escapeHtml(profile.id)}" class="button ghost" type="button">生成脚本</button>
         <button data-action="delete-profile" data-profile-id="${escapeHtml(profile.id)}" class="button ghost" type="button" style="color:var(--warn);border-color:var(--warn-light);">🗑️ 删除</button>
@@ -373,7 +357,7 @@ function renderRoutingMatrix() {
       <div>
         <div class="matrix-header">
           <div class="matrix-title-wrap">
-            <span class="matrix-icon">${item.icon}</span>
+            <span class="matrix-icon">${renderIconHtml(item.icon)}</span>
             <h3 class="matrix-title">${escapeHtml(item.title)}</h3>
           </div>
           <span class="matrix-route-pill route-${item.routeType}">
@@ -399,11 +383,21 @@ function renderRoutingMatrix() {
 function renderFiles() {
   const container = $("#fileList");
   if (!container || !state || !state.files) return;
-  const allFiles = state.files || [];
+  // 仅展示实际存在于磁盘上的脚本文件，删除后彻底从列表中消失
+  const allFiles = (state.files || []).filter((f) => f.exists);
   const total = allFiles.length;
   const totalPages = Math.max(1, Math.ceil(total / filePageSize));
   if (filePage > totalPages) filePage = totalPages;
   if (filePage < 1) filePage = 1;
+
+  if (allFiles.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 24px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: var(--radius);">
+        暂无已生成的脚本文件。保存卡片或点击「生成脚本」即可在此查看与管理。
+      </div>
+    `;
+    return;
+  }
 
   const startIdx = (filePage - 1) * filePageSize;
   const pagedFiles = allFiles.slice(startIdx, startIdx + filePageSize);
@@ -411,11 +405,17 @@ function renderFiles() {
   const rows = pagedFiles.map((file) => `
     <div class="file-row">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-        <div>
+        <div style="display:flex;align-items:center;gap:8px;">
           <strong class="file-name" style="font-size:14px;color:var(--text);">${escapeHtml(file.name || file.key)}</strong>
-          <span style="font-size:12px;color:var(--muted);margin-left:8px;">${escapeHtml(file.desc || "")}</span>
+          <span style="font-size:12px;color:var(--muted);">${escapeHtml(file.desc || "")}</span>
         </div>
-        <span class="status-pill ${file.exists ? "ok" : "warn"}">${file.exists ? "已就绪" : "未生成"}</span>
+        <div style="display:flex;gap:6px;align-items:center;">
+          ${file.running
+            ? `<span class="status-pill ok" style="font-weight:700;">🟢 运行中</span>`
+            : `<span class="status-pill info" style="background:#f1f5f9;color:#64748b;">⚪ 未运行</span>`
+          }
+          <span class="status-pill ${file.exists ? "ok" : "warn"}">${file.exists ? "已生成" : "未生成"}</span>
+        </div>
       </div>
       <div class="file-path mono" title="${escapeHtml(file.path)}" style="margin: 6px 0;">${escapeHtml(file.path)}</div>
       <div style="display:flex;gap:6px;margin-top:4px;">
@@ -443,7 +443,7 @@ function openProfileModal(profile = null, defaultMode = "process") {
   const defaultPort = state?.config?.proxy?.port || 7890;
   const currentProfile = profile || {
     id: `profile-${Date.now()}`,
-    name: defaultMode === "force-direct" ? "新直连应用" : "新代理应用",
+    name: "",
     kind: "software",
     proxyMode: defaultMode,
     proxyHost: "127.0.0.1",
@@ -451,7 +451,7 @@ function openProfileModal(profile = null, defaultMode = "process") {
     command: "",
     args: "",
     workingDir: "",
-    note: defaultMode === "force-direct" ? "强行走本地网络直连" : "独立指定代理 (单进程生效)",
+    note: "",
   };
 
   const title = $("#drawerTitle");
@@ -464,26 +464,69 @@ function openProfileModal(profile = null, defaultMode = "process") {
 
   const isDirect = currentProfile.proxyMode === "force-direct" || currentProfile.proxyMode === "bypass-local";
   const isProcess = currentProfile.proxyMode === "process" || currentProfile.proxyMode === "dedicated-proxy";
+  const isGateway = currentProfile.proxyMode === "gateway";
+
+  const defaultIcon = currentProfile.icon || (currentProfile.proxyMode === "gateway" ? "🤖" : "⚡");
 
   const formHtml = `
     <form id="profileModalForm" class="modal-form" data-modal-profile-id="${escapeHtml(currentProfile.id)}" data-is-editing="${isEditing}">
-      <label>
-        <span>软件 / CLI 名称</span>
-        <input name="name" value="${escapeHtml(currentProfile.name)}" placeholder="例如 Agy / Codex / Cursor / 我的工具" required />
-      </label>
+      <div class="form-grid two" style="gap:12px;">
+        <label>
+          <span>软件 / 组件名称</span>
+          <input name="name" value="${escapeHtml(currentProfile.name)}" placeholder="例如 Agy / Claude Code / OpenAI 网关" required />
+        </label>
+        <label>
+          <span>卡片图标</span>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input name="icon" id="profileIconInput" value="${escapeHtml(currentProfile.icon || defaultIcon)}" style="width:140px;font-size:14px;" placeholder="Emoji 或 /icons/xxx.svg" />
+            <div class="icon-preset-list" style="display:flex;gap:4px;flex-wrap:wrap;flex:1;">
+              <button type="button" class="icon-preset-btn" data-icon="/icons/claude.svg" title="Claude 官方图标"><img src="/icons/claude.svg" style="width:16px;height:16px;" /></button>
+              <button type="button" class="icon-preset-btn" data-icon="/icons/agy.svg" title="Agy 官方图标"><img src="/icons/agy.svg" style="width:16px;height:16px;" /></button>
+              <button type="button" class="icon-preset-btn" data-icon="/icons/openai.svg" title="OpenAI / Codex"><img src="/icons/openai.svg" style="width:16px;height:16px;" /></button>
+              <button type="button" class="icon-preset-btn" data-icon="/icons/gemini.svg" title="Gemini"><img src="/icons/gemini.svg" style="width:16px;height:16px;" /></button>
+              <button type="button" class="icon-preset-btn" data-icon="🖱️" title="Cursor IDE">🖱️</button>
+              <button type="button" class="icon-preset-btn" data-icon="🐋" title="DeepSeek">🐋</button>
+              <button type="button" class="icon-preset-btn" data-icon="🚀" title="独立代理">🚀</button>
+              <button type="button" class="icon-preset-btn" data-icon="🔄" title="本地网关">🔄</button>
+              <button type="button" class="icon-preset-btn" data-icon="📦" title="软件包 / CLI">📦</button>
+            </div>
+          </div>
+        </label>
+      </div>
       <label>
         <span>代理路由策略</span>
-        <select name="proxyMode">
+        <select name="proxyMode" id="profileProxyModeSelect">
           <option value="process" ${isProcess ? "selected" : ""}>🚀 独立指定代理 (单进程注入代理)</option>
+          <option value="gateway" ${isGateway ? "selected" : ""}>🔄 本地反向网关 (本地端口 ➔ 目标中转站)</option>
           <option value="force-direct" ${isDirect ? "selected" : ""}>⚡ 强行走本地直连 (绕过系统全局代理)</option>
           <option value="none" ${currentProfile.proxyMode === "none" ? "selected" : ""}>🌐 跟随系统全局环境</option>
         </select>
       </label>
+
+      <!-- 网关专属设置区 -->
+      <div id="gatewayConfigFields" style="display:${isGateway ? "block" : "none"};background:var(--bg-subtle,#f8fafc);padding:12px;border-radius:var(--radius);border:1px dashed var(--border);margin-bottom:12px;">
+        <div class="form-grid two" style="gap:12px;">
+          <label>
+            <span>本地网关监听端口</span>
+            <input name="gatewayPort" type="number" min="1" max="65535" value="${escapeHtml(currentProfile.gatewayPort || 8787)}" placeholder="8787" />
+          </label>
+          <label>
+            <span>目标中转站 / API Upstream</span>
+            <input name="upstreamUrl" value="${escapeHtml(currentProfile.upstreamUrl || "https://tokenrhythm.studio")}" placeholder="https://tokenrhythm.studio" />
+          </label>
+        </div>
+        <span class="hint" style="font-size:12px;color:var(--muted);display:block;margin-top:6px;">
+          💡 将在本地 127.0.0.1 开启此端口转发网关，自动处理 API 请求头鉴权与格式转接。
+        </span>
+      </div>
+
       <label>
         <span>执行命令 / 可执行文件路径</span>
-        <input name="command" value="${escapeHtml(currentProfile.command)}" placeholder="例如 agy / codex / cursor / D:\\app\\tool.exe" />
+        <input name="command" value="${escapeHtml(currentProfile.command)}" placeholder="例如 agy / claude / cursor / D:\\app\\tool.exe" />
       </label>
-      <div class="form-grid two" style="gap:12px;">
+
+      <!-- 普通代理专属主机/端口区 -->
+      <div id="proxyHostPortFields" class="form-grid two" style="gap:12px;display:${isProcess ? "grid" : "none"};">
         <label>
           <span>代理主机</span>
           <input name="proxyHost" value="${escapeHtml(currentProfile.proxyHost || "127.0.0.1")}" placeholder="127.0.0.1" />
@@ -493,6 +536,7 @@ function openProfileModal(profile = null, defaultMode = "process") {
           <input name="proxyPort" type="number" min="1" max="65535" value="${escapeHtml(currentProfile.proxyPort || defaultPort)}" placeholder="7890" />
         </label>
       </div>
+
       <label>
         <span>运行参数 (可留空)</span>
         <input name="args" value="${escapeHtml(currentProfile.args)}" placeholder="例如 --model deepseek-chat" />
@@ -502,8 +546,18 @@ function openProfileModal(profile = null, defaultMode = "process") {
         <input name="workingDir" value="${escapeHtml(currentProfile.workingDir)}" placeholder="例如 D:\\Code\\Project" />
       </label>
       <label>
+        <span>自定义生成脚本文件名 (例如 switch-claude-proxy)</span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input name="scriptName" id="profileScriptNameInput" value="${escapeHtml(currentProfile.scriptName || "")}" placeholder="留空则自动以 [软件名-starter] 命名" pattern="[a-zA-Z0-9._-]+" title="仅允许英文、数字、下划线、短横线、点" />
+          <span style="font-size:13px;color:#64748b;font-family:Consolas,monospace;font-weight:700;">.cmd</span>
+        </div>
+        <span class="hint" style="font-size:12px;color:var(--muted);">
+          📌 脚本命名规则：仅限字母、数字、下划线 (_)、短横线 (-) 和点 (.)，不可包含空格及特殊符号 (\ / : * ? " < > |)。
+        </span>
+      </label>
+      <label>
         <span>备注说明</span>
-        <input name="note" value="${escapeHtml(currentProfile.note)}" placeholder="如：用于 OpenAI Codex CLI 强制走本地网络" />
+        <input name="note" value="${escapeHtml(currentProfile.note)}" placeholder="例如：转接 Claude Code 至 TokenRhythm 中转服务" />
       </label>
       <div class="modal-actions">
         <button type="button" class="button ghost" id="modalCancelBtn">取消</button>
@@ -513,6 +567,27 @@ function openProfileModal(profile = null, defaultMode = "process") {
   `;
 
   if (drawerBody) drawerBody.innerHTML = formHtml;
+
+  // 动态切换表单字段显示
+  const modeSelect = $("#profileProxyModeSelect");
+  if (modeSelect) {
+    modeSelect.addEventListener("change", (e) => {
+      const mode = e.target.value;
+      const gwFields = $("#gatewayConfigFields");
+      const pxFields = $("#proxyHostPortFields");
+      if (gwFields) gwFields.style.display = mode === "gateway" ? "block" : "none";
+      if (pxFields) pxFields.style.display = mode === "process" ? "grid" : "none";
+    });
+  }
+
+  // 预设图标点击快速填入
+  const iconInput = $("#profileIconInput");
+  drawerBody?.querySelectorAll(".icon-preset-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (iconInput) iconInput.value = btn.dataset.icon || "📦";
+    });
+  });
+
   if (drawer) {
     drawer.classList.add("open");
     drawer.setAttribute("aria-hidden", "false");
@@ -527,9 +602,17 @@ function openProfileModal(profile = null, defaultMode = "process") {
       const profileId = modalForm.dataset.modalProfileId;
       const isEdit = modalForm.dataset.isEditing === "true";
 
+      const rawScriptName = formData.get("scriptName")?.trim() || "";
+      if (rawScriptName && !/^[a-zA-Z0-9._-]+$/.test(rawScriptName)) {
+        toast("脚本名称不合法！仅限字母、数字、下划线、短横线及点，不可包含空格或特殊符号。", true);
+        return;
+      }
+
       const updated = {
         id: profileId,
         name: formData.get("name")?.trim() || profileId,
+        icon: formData.get("icon")?.trim() || "📦",
+        scriptName: rawScriptName,
         kind: "software",
         proxyMode: formData.get("proxyMode") || "process",
         proxyHost: formData.get("proxyHost")?.trim() || "127.0.0.1",
@@ -538,6 +621,8 @@ function openProfileModal(profile = null, defaultMode = "process") {
         args: formData.get("args")?.trim() || "",
         workingDir: formData.get("workingDir")?.trim() || "",
         note: formData.get("note")?.trim() || "",
+        gatewayPort: Number(formData.get("gatewayPort") || 8787),
+        upstreamUrl: formData.get("upstreamUrl")?.trim() || "https://tokenrhythm.studio",
       };
 
       if (!state.config) state.config = {};
@@ -982,13 +1067,11 @@ document.addEventListener("click", async (event) => {
         break;
 
       case "add-profile":
+      case "add-profile":
       case "addProfile":
       case "add-profile-proxy":
-        openProfileModal(null, "process");
-        break;
-
       case "add-profile-direct":
-        openProfileModal(null, "force-direct");
+        openProfileModal(null, "process");
         break;
 
       case "edit-profile": {
@@ -1002,34 +1085,6 @@ document.addEventListener("click", async (event) => {
         break;
       }
 
-      case "add-preset-codex":
-        addProfile({
-          id: "codex",
-          name: "Codex CLI",
-          proxyMode: "force-direct",
-          proxyHost: "127.0.0.1",
-          proxyPort: 7890,
-          command: "codex",
-          args: "",
-          note: "强行走本地直连网络，不受全局代理干扰",
-        });
-        toast("已添加 Codex CLI 预设配置。");
-        break;
-
-      case "add-preset-cursor":
-        addProfile({
-          id: "cursor",
-          name: "Cursor IDE",
-          proxyMode: "force-direct",
-          proxyHost: "127.0.0.1",
-          proxyPort: 7890,
-          command: "cursor",
-          args: "",
-          note: "强行走本地网络 (直连)",
-        });
-        toast("已添加 Cursor 预设配置。");
-        break;
-
       case "toggle-gateway": {
         const payload = await api("/api/toggle-gateway");
         state = payload.state;
@@ -1040,12 +1095,69 @@ document.addEventListener("click", async (event) => {
 
       case "delete-profile": {
         const profileId = target.dataset.profileId;
-        if (profileId) {
-          const payload = await api("/api/delete-profile", { profileId });
+        const profile = (state?.config?.profiles || []).find((p) => p.id === profileId);
+        if (!profileId || !profile) break;
+
+        const isGateway = profile.proxyMode === "gateway";
+        const title = $("#drawerTitle");
+        const eyebrow = $("#drawerEyebrow");
+        const drawerBody = $("#drawerBody");
+        const drawer = $("#drawer");
+
+        if (eyebrow) eyebrow.textContent = "Confirm Delete";
+        if (title) title.textContent = `删除配置卡片 - ${profile.name || profile.id}`;
+
+        const confirmHtml = `
+          <div class="modal-form" style="display:flex;flex-direction:column;gap:16px;">
+            <p style="color:var(--text);font-size:14px;line-height:1.6;">
+              您正在删除 <strong>${escapeHtml(profile.name || profile.id)}</strong> 的配置卡片与专属脚本。请选择删除策略：
+            </p>
+
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--bg-card);">
+                <input type="radio" name="deleteStrategy" value="revert" checked style="margin-top:3px;" />
+                <div>
+                  <strong style="color:var(--text);font-size:14px;display:block;">🧹 彻底清除并恢复原本样子 (推荐)</strong>
+                  <span style="color:var(--muted);font-size:12px;line-height:1.4;display:block;margin-top:2px;">
+                    删除卡片与脚本，自动停止关联的后台进程（如释放 ${profile.gatewayPort || 8787} 端口），清理 PowerShell 命令封装，恢复系统与网络原本状态。
+                  </span>
+                </div>
+              </label>
+
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--bg-card);">
+                <input type="radio" name="deleteStrategy" value="keep" style="margin-top:3px;" />
+                <div>
+                  <strong style="color:var(--text);font-size:14px;display:block;">📦 仅从页面移除卡片 (保留当前已生效运行状态)</strong>
+                  <span style="color:var(--muted);font-size:12px;line-height:1.4;display:block;margin-top:2px;">
+                    仅删除面板上的卡片与脚本文件，保持当前正在运行的后台服务与终端环境变量不受影响。
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            <div class="modal-actions" style="margin-top:8px;">
+              <button type="button" class="button ghost" id="deleteCancelBtn">取消</button>
+              <button type="button" class="button primary" id="deleteConfirmBtn" style="background:var(--warn,#ef4444);border-color:var(--warn,#ef4444);">确认删除</button>
+            </div>
+          </div>
+        `;
+
+        if (drawerBody) drawerBody.innerHTML = confirmHtml;
+        if (drawer) {
+          drawer.classList.add("open");
+          drawer.setAttribute("aria-hidden", "false");
+        }
+
+        $("#deleteCancelBtn")?.addEventListener("click", closeDrawer);
+        $("#deleteConfirmBtn")?.addEventListener("click", async () => {
+          const selected = document.querySelector("input[name='deleteStrategy']:checked")?.value;
+          const revertChanges = selected === "revert";
+          closeDrawer();
+          const payload = await api("/api/delete-profile", { profileId, revertChanges });
           state = payload.state;
           render();
-          toast("已删除该软件配置及对应的专属启动脚本。");
-        }
+          toast(revertChanges ? "已彻底删除卡片并恢复原本网络/进程状态。" : "已移除卡片配置。");
+        });
         break;
       }
 
@@ -1070,8 +1182,25 @@ document.addEventListener("click", async (event) => {
         const profileId = target.dataset.profileId;
         if (profileId) {
           await saveConfig(false);
-          await api("/api/launch-profile", { profileId });
-          toast(`启动命令已执行 (ID: ${profileId})`);
+          const payload = await api("/api/launch-profile", { profileId });
+          if (payload.state) {
+            state = payload.state;
+            render();
+          }
+          toast("已成功启动该配置及其关联服务！");
+        }
+        break;
+      }
+
+      case "stop-profile": {
+        const profileId = target.dataset.profileId;
+        if (profileId) {
+          const payload = await api("/api/stop-profile", { profileId });
+          if (payload.state) {
+            state = payload.state;
+            render();
+          }
+          toast("已关闭该配置运行中的后台服务与进程。");
         }
         break;
       }
