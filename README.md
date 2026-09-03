@@ -120,10 +120,10 @@ data/config.example.json
 | **只要 Agy 走代理，不想影响全局** | 使用「Agy 单进程代理」启动或生成脚本 | 仅在启动子进程时注入代理变量 |
 | **Cursor 需要强制直连** | 使用「Cursor 强制直连」脚本启动 | 启动前自动清空代理变量 |
 
-详细指南可参阅 [docs/GLOBAL_PROXY_GUIDE.md](file:///D:/Code/wwSwitch/docs/GLOBAL_PROXY_GUIDE.md)。
+详细指南可参阅 [docs/GLOBAL_PROXY_GUIDE.md](docs/GLOBAL_PROXY_GUIDE.md)。
 
 ---
 
 ## 开源协议
 
-本项目采用 [MIT License](file:///D:/Code/wwSwitch/LICENSE) 开源。
+本项目采用 [MIT License](LICENSE) 开源。

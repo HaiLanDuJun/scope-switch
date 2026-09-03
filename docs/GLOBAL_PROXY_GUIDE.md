@@ -94,19 +94,19 @@ https_proxy
 也可以点击“生成脚本”，生成的 `.cmd` 位于：
 
 ```text
-generated\
+scripts/
 ```
 
-这个脚本可以复制到桌面双击使用。它不会修改 Windows 用户级环境变量。
+这个脚本位于项目内 `scripts/` 目录中。它不会修改 Windows 用户级环境变量。
 
 ## Claude TokenRhythm 本地网关文件
 
 在新电脑没有旧脚本时，点击“生成 Claude 代理文件”，ScopeSwitch 会创建：
 
 ```text
-%USERPROFILE%\.claude\switch-tokenrhythm-proxy.cmd
-%USERPROFILE%\.claude\switch-tokenrhythm-proxy.ps1
-%USERPROFILE%\.claude\tokenrhythm-proxy.js
+scripts/switch-tokenrhythm-proxy.cmd
+scripts/switch-tokenrhythm-proxy.ps1
+scripts/tokenrhythm-proxy.js
 ```
 
 默认行为：
@@ -130,22 +130,16 @@ http://127.0.0.1:8787
 http://127.0.0.1:18888
 ```
 
-## Toggle-Agy-Proxy 文件
+## Toggle-Global-Proxy 文件
 
-为了兼容旧习惯，ScopeSwitch 也可以生成：
-
-```text
-Toggle-Agy-Proxy.ps1
-Toggle-Agy-Proxy.cmd
-```
-
-默认生成目录是：
+ScopeSwitch 会在 `scripts/` 目录下生成全局代理切换脚本：
 
 ```text
-%USERPROFILE%\Desktop
+scripts/Toggle-Global-Proxy.ps1
+scripts/Toggle-Global-Proxy.cmd
 ```
 
-这两个文件用于切换“全局代理”，不是单进程代理。如果你只想让 Agy 自己走代理，应优先使用“其他 API / 软件代理”里的 Agy 配置并生成单进程脚本。
+这两个文件用于切换“全局代理”，不是单进程代理。如果你只想让 Agy 自己走代理，应优先使用“应用配置卡片”里的 Agy 配置并生成单进程脚本。
 
 ## 新电脑初始化流程
 

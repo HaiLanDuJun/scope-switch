@@ -5,7 +5,7 @@ const net = require("node:net");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
-const { spawn } = require("node:child_process");
+const { spawn, execSync, execFileSync } = require("node:child_process");
 
 const APP_DIR = __dirname;
 const PUBLIC_DIR = path.join(APP_DIR, "public");
@@ -206,12 +206,21 @@ function runPowerShell(script) {
   });
 }
 
+let envCache = null;
+let envCacheTime = 0;
+const ENV_CACHE_TTL = 10000;
+
+function invalidateEnvCache() {
+  envCache = null;
+  envCacheTime = 0;
+}
+
 function readWindowsRegistryEnv() {
   const userMap = {};
   const machineMap = {};
 
   try {
-    const userOutput = require("node:child_process").execSync("reg query HKCU\\Environment", {
+    const userOutput = execFileSync("reg.exe", ["query", "HKCU\\Environment"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       windowsHide: true,
@@ -225,8 +234,9 @@ function readWindowsRegistryEnv() {
   } catch (_e) {}
 
   try {
-    const machineOutput = require("node:child_process").execSync(
-      'reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"',
+    const machineOutput = execFileSync(
+      "reg.exe",
+      ["query", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"],
       {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
@@ -244,7 +254,7 @@ function readWindowsRegistryEnv() {
   return { userMap, machineMap };
 }
 
-async function getEnvironmentState() {
+async function getEnvironmentState(forceRefresh = false) {
   if (process.platform !== "win32") {
     return ALL_ENV_NAMES.map((name) => ({
       name,
@@ -254,9 +264,13 @@ async function getEnvironmentState() {
     }));
   }
 
+  if (!forceRefresh && envCache && Date.now() - envCacheTime < ENV_CACHE_TTL) {
+    return envCache;
+  }
+
   const { userMap, machineMap } = readWindowsRegistryEnv();
 
-  return ALL_ENV_NAMES.map((name) => {
+  const state = ALL_ENV_NAMES.map((name) => {
     // Check case-insensitive match from registry maps
     const uKey = Object.keys(userMap).find((k) => k.toLowerCase() === name.toLowerCase());
     const mKey = Object.keys(machineMap).find((k) => k.toLowerCase() === name.toLowerCase());
@@ -267,6 +281,10 @@ async function getEnvironmentState() {
       machine: mKey ? machineMap[mKey] : "",
     };
   });
+
+  envCache = state;
+  envCacheTime = Date.now();
+  return state;
 }
 
 async function setGlobalProxy(config, enabled, portOverride) {
@@ -278,28 +296,38 @@ async function setGlobalProxy(config, enabled, portOverride) {
   const allUrl = allProxyUrl(host, port, scheme);
 
   // Helper to set or delete a single env name in the registry + current process
-  const applyEnv = (name, value) => {
+  const applyRegistryEnv = (name, value) => {
     if (enabled) {
       try {
-        require("node:child_process").execSync(
-          `reg add HKCU\\Environment /v ${name} /t REG_SZ /d "${value}" /f`,
-          { stdio: ["ignore", "ignore", "ignore"], windowsHide: true }
-        );
+        execFileSync("reg.exe", ["add", "HKCU\\Environment", "/v", name, "/t", "REG_SZ", "/d", value, "/f"], {
+          stdio: ["ignore", "ignore", "ignore"],
+          windowsHide: true,
+        });
       } catch (_e) {}
-      process.env[name] = value;
     } else {
       try {
-        require("node:child_process").execSync(
-          `reg delete HKCU\\Environment /v ${name} /f`,
-          { stdio: ["ignore", "ignore", "ignore"], windowsHide: true }
-        );
+        execFileSync("reg.exe", ["delete", "HKCU\\Environment", "/v", name, "/f"], {
+          stdio: ["ignore", "ignore", "ignore"],
+          windowsHide: true,
+        });
       } catch (_e) {}
-      delete process.env[name];
     }
   };
 
-  for (const name of HTTP_PROXY_ENV_NAMES) applyEnv(name, url);
-  for (const name of ALL_PROXY_ENV_NAMES) applyEnv(name, allUrl);
+  // Windows registry is case-insensitive, write standard uppercase keys to registry
+  applyRegistryEnv("HTTP_PROXY", url);
+  applyRegistryEnv("HTTPS_PROXY", url);
+  applyRegistryEnv("ALL_PROXY", allUrl);
+
+  // Update current Node process environment for both upper and lowercase keys
+  if (enabled) {
+    for (const name of HTTP_PROXY_ENV_NAMES) process.env[name] = url;
+    for (const name of ALL_PROXY_ENV_NAMES) process.env[name] = allUrl;
+  } else {
+    for (const name of ALL_ENV_NAMES) delete process.env[name];
+  }
+
+  invalidateEnvCache();
 
   // Broadcast WM_SETTINGCHANGE asynchronously without blocking response
   runPowerShell(`
@@ -317,25 +345,25 @@ async function setGlobalBypass(config, enabled) {
   if (process.platform !== "win32") throw new Error("Global proxy editing is only implemented for Windows.");
   const value = bypassValue(config);
 
-  for (const name of BYPASS_ENV_NAMES) {
-    if (enabled) {
-      try {
-        require("node:child_process").execSync(
-          `reg add HKCU\\Environment /v ${name} /t REG_SZ /d "${value}" /f`,
-          { stdio: ["ignore", "ignore", "ignore"], windowsHide: true }
-        );
-      } catch (_e) {}
-      process.env[name] = value;
-    } else {
-      try {
-        require("node:child_process").execSync(
-          `reg delete HKCU\\Environment /v ${name} /f`,
-          { stdio: ["ignore", "ignore", "ignore"], windowsHide: true }
-        );
-      } catch (_e) {}
-      delete process.env[name];
-    }
+  if (enabled) {
+    try {
+      execFileSync("reg.exe", ["add", "HKCU\\Environment", "/v", "NO_PROXY", "/t", "REG_SZ", "/d", value, "/f"], {
+        stdio: ["ignore", "ignore", "ignore"],
+        windowsHide: true,
+      });
+    } catch (_e) {}
+    for (const name of BYPASS_ENV_NAMES) process.env[name] = value;
+  } else {
+    try {
+      execFileSync("reg.exe", ["delete", "HKCU\\Environment", "/v", "NO_PROXY", "/f"], {
+        stdio: ["ignore", "ignore", "ignore"],
+        windowsHide: true,
+      });
+    } catch (_e) {}
+    for (const name of BYPASS_ENV_NAMES) delete process.env[name];
   }
+
+  invalidateEnvCache();
 
   // Broadcast WM_SETTINGCHANGE asynchronously
   runPowerShell(`
@@ -839,7 +867,10 @@ function syncPowerShellProfile(config) {
   const blocks = activeProfiles.map((profile) => {
     const cmd = profile.command.trim();
     const fnName = cmd.replace(/\.exe$/i, "").replace(/[^a-zA-Z0-9_-]/g, "_");
-    const exeName = cmd.includes(".") ? cmd : `${cmd}.exe`;
+    const isExplicitPath = path.isAbsolute(cmd) || cmd.includes("\\") || cmd.includes("/");
+    const runTarget = isExplicitPath
+      ? `& '${expandPath(cmd).replace(/'/g, "''")}' @args`
+      : `$realCmd = (Get-Command -Name '${cmd.replace(/'/g, "''")}' -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1); if ($realCmd) { & $realCmd.Source @args } else { & '${cmd.replace(/'/g, "''")}' @args }`;
 
     if (profile.proxyMode === "gateway") {
       const gwPort = normalizePort(profile.gatewayPort, 8787);
@@ -863,7 +894,7 @@ function ${fnName} {
     $env:https_proxy = ""
     $env:all_proxy = ""
     try {
-        & (Get-Command ${exeName} -CommandType Application).Source @args
+        ${runTarget}
     }
     finally {
         Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue
@@ -895,7 +926,7 @@ function ${fnName} {
     $env:NO_PROXY    = "${bypass}"
     $env:no_proxy    = "${bypass}"
     try {
-        & (Get-Command ${exeName} -CommandType Application).Source @args
+        ${runTarget}
     }
     finally {
         Remove-Item Env:HTTP_PROXY  -ErrorAction SilentlyContinue
@@ -1022,7 +1053,12 @@ async function stopProfile(config, profileId, terminate = true) {
           if ($listeners) {
             $pids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
             foreach ($pidToKill in $pids) {
-              if ($pidToKill -gt 0) { Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue }
+              if ($pidToKill -gt 0) {
+                $proc = Get-Process -Id $pidToKill -ErrorAction SilentlyContinue
+                if ($proc -and $proc.ProcessName -eq "node") {
+                  Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue
+                }
+              }
             }
           }
         `);
@@ -1243,8 +1279,26 @@ function serveStatic(req, res, pathname) {
   fs.createReadStream(filePath).pipe(res);
 }
 
+function isAllowedOrigin(req) {
+  const origin = req.headers["origin"] || req.headers["referer"];
+  if (!origin) return true;
+  try {
+    const originUrl = new URL(origin);
+    const isLocalHost = originUrl.hostname === "127.0.0.1" || originUrl.hostname === "localhost" || originUrl.hostname === HOST;
+    const isLocalPort = Number(originUrl.port || (originUrl.protocol === "https:" ? 443 : 80)) === PORT;
+    return isLocalHost && isLocalPort;
+  } catch (_e) {
+    return false;
+  }
+}
+
 async function handleApi(req, res, url) {
   try {
+    if (!isAllowedOrigin(req)) {
+      sendJson(res, 403, { ok: false, error: "Forbidden: Cross-origin request denied." });
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/state") {
       sendJson(res, 200, { ok: true, state: await getState() });
       return;
@@ -1384,7 +1438,12 @@ async function handleApi(req, res, url) {
                 if ($listeners) {
                   $pids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
                   foreach ($pidToKill in $pids) {
-                    if ($pidToKill -gt 0) { Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue }
+                    if ($pidToKill -gt 0) {
+                      $proc = Get-Process -Id $pidToKill -ErrorAction SilentlyContinue
+                      if ($proc -and $proc.ProcessName -eq "node") {
+                        Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue
+                      }
+                    }
                   }
                 }
               `).catch(() => {});
